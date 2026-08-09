@@ -1,0 +1,19 @@
+{
+  "id": "vrm_rival_ghosts",
+  "name": "Rival Ghosts",
+  "version": "0.8.4",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content",
+  "category": "MECHANIC",
+  "game_version": ">=0.0.0-0 <2.0.0",
+  "priority": 100,
+  "affects_link": false,
+  "permissions": [
+    "engine_internals"
+  ],
+  "dependencies": [],
+  "optional_dependencies": [],
+  "conflicts": [],
+  "description": "Send your current character (map position + party) to a shared file that lives outside any save (or, with experimental ONLINE MODE, to a small server too). Other saves find your sent character standing where you left them: it spots you and forces a battle, with optional dialogue you wrote. Once beaten, interact with it to hear its after-battle line again (or fight again if repeatable battles are on). Test build."
+}
