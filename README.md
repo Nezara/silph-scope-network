@@ -1,4 +1,4 @@
-# Silph Scope Network (test build 0.8.4)
+# Silph Scope Network (test build 0.8.5)
 -- Created with AI/Vibe Coding--
 
 Send your current character to another save as enemy trainer you can fight!
@@ -90,8 +90,9 @@ keeps working exactly as before regardless of this setting). Turn on
 **Upload**: happens automatically whenever you **SEND GHOST** with ONLINE
 MODE on, using the exact same captured position/party/dialogue as the local
 send — no separate action. Fire-and-forget: you get your normal "ghost sent"
-confirmation immediately; the upload itself completes in the background and
-only shows up in the debug log.
+confirmation immediately, and the upload itself completes in the background
+— once the server confirms it, you'll see a second "Ghost uploaded online!"
+message pop up.
 
 **Download**: whenever you enter a map with ONLINE MODE on, the mod asks the
 server for up to **ONLINE GHOST COUNT** ghosts on your current map or any

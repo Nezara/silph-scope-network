@@ -793,6 +793,13 @@ return function(mod)
       if ok and result and result.status ~= "pending" then
         if result.status == "ok" then
           log("online upload finished: %s", tostring(result.body))
+          -- HTTP succeeding just means we got a response -- the server can
+          -- still reject the payload (e.g. validation failure), so check the
+          -- body's own {ok:true/false} rather than trusting a 200 alone.
+          local decoded = select(2, pcall(Json.decode, result.body))
+          if type(decoded) == "table" and decoded.ok == true then
+            game.stack:push(TextBox.new(game, "Ghost uploaded\nonline!"))
+          end
         else
           log("online upload failed: %s", tostring(result.err))
         end
@@ -1048,7 +1055,7 @@ return function(mod)
     end
 
     -- Manual interact is only meaningful for a DEFEATED ghost (see
-    -- engageGhost): dialogue replay, or a full rematch if ENABLE REPEATABLE
+    -- engageGhost): dialogue replay, or a full rematch if REPEATABLE
     -- GHOST BATTLES is on. An undefeated ghost is only ever engaged via
     -- sight above, so it's excluded from this facing check entirely.
     local d = cur.facing and FACE_DELTA[normalizeDir(cur.facing)]
@@ -1249,5 +1256,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.8.4)")
+  log("loaded (v0.8.5)")
 end
