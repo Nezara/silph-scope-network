@@ -7,7 +7,7 @@ Save your current player character's location and current pokemon party to an ex
 Mod Options allow you to repeat the fight if you wish. 
 
 ## How to Use
-1. In the options Menu there is a option to "Send Ghost" which is send your current player character and pokemon party to an external file.
+1. In the Start Menu there is an option to "Send Ghost" which sends your current player character and pokemon party to an external file.
 2. you will be provided the option to leave both pre-fight and post-fight dialogue. 
 3. Save Game
 4. Load up a different save file, your previously sent ghost will be at the location the ghost was sent from ready to fight.
@@ -113,7 +113,7 @@ same way it should be: per receiving save, via the engine's own `Flags`
 module (`save.flags`), not shared globally across every save that fights
 this ghost.
 
-## Known limitations;
+## Known limitations:
 - The server's own storage is a single JSON list, not a real database —
   fine for an experimental feature with a handful of testers, but concurrent
   uploads aren't perfectly atomic (a rare race could drop one).
@@ -135,6 +135,3 @@ this ghost.
 - Win-detection relies on `start_battle` setting `ctx.lastCheck` immediately
   on return and `jump_if_false`/`label` resolving by string name — both
   confirmed from source, but this exact combination hasn't been run live yet.
-
-  *slot*, not just trainer name+id, since two different save files can share
-  a trainer id in this engine.
