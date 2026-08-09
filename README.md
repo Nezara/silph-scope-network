@@ -119,17 +119,10 @@ this ghost.
   already have).
 - If a download result arrives after you've already left the map it was
   requested for, it's discarded rather than spawned somewhere wrong.
-- Plain HTTP means this traffic isn't encrypted. Given the payload (a
-  ghost's map position and party) is meant to be shared publicly by design,
-  this is judged an acceptable tradeoff — see above.
 - IVs/DVs are not exact (only species/level/moves are) — the engine's trainer
   battle construction unconditionally overwrites DVs after building the mon,
   with no supported way around it short of bypassing trainer-battle
   construction entirely.
-- Sight has no wall/obstruction *detection* for whether the player is in view
-  (only `move_npc_to`'s own BFS pathing avoids obstacles once it's already
-  approaching) — the sight-line check itself is a straight cardinal ray, not
-  vision-blocked by scenery.
 - Win-detection relies on `start_battle` setting `ctx.lastCheck` immediately
   on return and `jump_if_false`/`label` resolving by string name — both
   confirmed from source, but this exact combination hasn't been run live yet.
