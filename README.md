@@ -80,7 +80,7 @@ either shouldn't be allowed. Any map id this list doesn't recognize is
 blocked by default (safe-by-default, since this is a restriction).
 
 
-## Online mode (experimental, new in 0.8.0, options bug fixed in 0.8.1, transport fixed in 0.8.2)
+## Online mode (experimental, 0.8.2)
 
 A small server (Cloudflare Worker + KV) that ghosts can additionally upload
 to and download from, layered on top of the local shared-file system (which
