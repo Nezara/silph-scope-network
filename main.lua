@@ -1257,6 +1257,32 @@ return function(mod)
     end))
   end
 
+  -- Standalone Start Menu entry (see ui.start_menu.items below) -- lets a
+  -- player who's only DOWNLOADING ghosts (not sending one) join or leave a
+  -- private password pool without needing to go through SEND GHOST at all.
+  -- Writes straight to the same per-save s.passwords entry askPassword
+  -- reads/writes, so whichever was set last (here or at a send) wins.
+  local function setOnlinePassword(game)
+    local s = loadStorage()
+    local origin = saveOriginId(game)
+    local current = s.passwords[origin] or ""
+    game.stack:push(NamingScreen.new(game, {
+      title   = "ONLINE PASSWORD",
+      maxLen  = DIALOGUE_MAX_LEN,
+      default = current,
+      onDone  = function(text)
+        local st = loadStorage()
+        st.passwords[origin] = text or ""
+        markDirty()
+        log("online password set directly (len=%d)", #(text or ""))
+        local msg = (text and text ~= "")
+          and "Online password set.\fOnline ghosts now only\nmatch that password."
+          or "Online password\ncleared.\fYou'll see public\nghosts again."
+        game.stack:push(TextBox.new(game, msg))
+      end,
+    }))
+  end
+
   -- ChoiceBox renders only a YES/NO selector, no text of its own (confirmed
   -- from source) -- it's always paired with a preceding TextBox for the
   -- question, same as vrm_pokemon_bank's own RELEASE confirmation does.
@@ -1310,15 +1336,25 @@ return function(mod)
     end))
   end
 
-  -- Add "SEND GHOST" to the Start menu (decorate-after-next, like the Bank's
-  -- PC-menu row). Insert before EXIT if present; otherwise append.
+  -- Add "SEND GHOST" and "ONLINE PASSWORD" to the Start menu (decorate-
+  -- after-next, like the Bank's PC-menu row). Insert both before EXIT if
+  -- present; otherwise append. ONLINE PASSWORD is separate from SEND GHOST
+  -- specifically so a player who only wants to DOWNLOAD ghosts (never sends
+  -- one) can still join/leave a private password pool.
   mod.hooks:wrap("ui.start_menu.items", function(next_, game, items)
     local out = next_(game, items)
     if type(out) ~= "table" then return out end
-    local row = { label = "SEND GHOST", onSelect = function() sendSelf(game) end }
-    local inserted = mod.ui and mod.ui.insertBefore and mod.ui.insertBefore(out, "EXIT", row)
-    if type(inserted) == "table" then return inserted end
-    out[#out + 1] = row
+    local sendRow = { label = "SEND GHOST", onSelect = function() sendSelf(game) end }
+    local pwRow   = { label = "ONLINE PASSWORD", onSelect = function() setOnlinePassword(game) end }
+    if mod.ui and mod.ui.insertBefore then
+      local inserted = mod.ui.insertBefore(out, "EXIT", sendRow)
+      if type(inserted) == "table" then out = inserted end
+      inserted = mod.ui.insertBefore(out, "EXIT", pwRow)
+      if type(inserted) == "table" then return inserted end
+      return out
+    end
+    out[#out + 1] = sendRow
+    out[#out + 1] = pwRow
     return out
   end)
 
@@ -1358,5 +1394,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.9.0)")
+  log("loaded (v0.9.1)")
 end

@@ -1,4 +1,4 @@
-# Silph Scope Network (test build 0.9.0)
+# Silph Scope Network (test build 0.9.1)
 -- Created with AI/Vibe Coding--
 
 Send your current character to another save as enemy trainer you can fight!
@@ -122,6 +122,14 @@ The password also becomes this save's remembered password for its own
 `/nearby` downloads going forward, until you change it at a later send. Like
 everything else this mod sends, it travels in a plain-HTTP query string —
 treat it as a room code, not a real credential.
+
+**Setting a password without sending a ghost**: the Start Menu also has an
+**ONLINE PASSWORD** entry, separate from SEND GHOST — for a player who only
+wants to *download* ghosts from a private pool and doesn't need to send
+their own. Opens the same text-entry screen, prefilled with whatever this
+save currently has set; typing a new value (or clearing it to blank)
+updates it immediately, no ghost upload involved. Whichever was set most
+recently — here or at a SEND GHOST — is what's currently in effect.
 
 
 
