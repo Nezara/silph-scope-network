@@ -113,7 +113,7 @@ same way it should be: per receiving save, via the engine's own `Flags`
 module (`save.flags`), not shared globally across every save that fights
 this ghost.
 
-**Known limitations**:
+## Known limitations;
 - The server's own storage is a single JSON list, not a real database —
   fine for an experimental feature with a handful of testers, but concurrent
   uploads aren't perfectly atomic (a rare race could drop one).
