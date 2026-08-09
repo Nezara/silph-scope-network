@@ -138,6 +138,6 @@ this ghost.
 
  ## Coming Soon
 - Level locking per region, no level 100 ghosts anywhere near pallet town or low level areas.
--  - Different Ghost avatars, select which sprite you want your ghost to have
+- Different Ghost avatars, select which sprite you want your ghost to have
 - passwords for ghost connection, so friends or streamers can have dedicated runs with invite only for ghosts. 
   
