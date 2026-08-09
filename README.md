@@ -1,4 +1,4 @@
-# Silph Scope Network (test build 0.8.5)
+# Silph Scope Network (test build 0.9.0)
 -- Created with AI/Vibe Coding--
 
 Send your current character to another save as enemy trainer you can fight!
@@ -8,7 +8,7 @@ Mod Options allow you to repeat the fight if you wish.
 
 ## How to Use
 1. In the Start Menu there is an option to "Send Ghost" which sends your current player character and pokemon party to an external file.
-2. you will be provided the option to leave both pre-fight and post-fight dialogue. 
+2. you will be provided the option to leave both pre-fight and post-fight dialogue, then to set an online password (see Online mode below).
 3. Save Game
 4. Load up a different save file, your previously sent ghost will be at the location the ghost was sent from ready to fight.
 
@@ -40,6 +40,13 @@ When you **SEND GHOST**, you're asked:
   (0.8.1) after an 0.8.0 bug (see changelog) briefly made it look
   unsupported; it wasn't the type, it was a `mod.options:define()` call
   wiping out the other options.
+- **GHOST SPRITE: \<name\>** — six toggles (BIKER, COOLTRAINER (M), HIKER,
+  BEAUTY, COOLTRAINER (F), CHANNELER), all OFF by default. Turn one ON to
+  make your NEXT sent ghost use that overworld sprite and matching battle
+  art instead of the default (Red). If more than one is somehow ON at once,
+  the first match in that list order wins; if none are on, you get Red.
+  Read fresh at SEND GHOST time, so flipping this before a send takes
+  effect immediately — it doesn't change ghosts you've already sent.
 
 
 **Sending is one-ghost-per-save.** SEND GHOST always replaces whatever this
@@ -100,6 +107,22 @@ map directly connected to it (computed from the game's own already-loaded
 map data — the server never needs to know the game's map layout), excluding
 your own upload. Matching ghosts get spawned the same way local ones do.
 
+**Password (private pools)**: at SEND GHOST time, after the dialogue
+prompts, you're asked *"Set an online password?"* (default **NO**, keeps
+whatever password this save last set — starts blank/public if you've never
+set one). Say yes to type a room code:
+
+- A ghost sent with **no password** is public — every downloader can see it,
+  regardless of their own password.
+- A ghost sent **with a password** is only visible to downloaders whose own
+  currently-remembered password matches it exactly — a private pool for a
+  friend group or a streamer's run, separate from the public one.
+
+The password also becomes this save's remembered password for its own
+`/nearby` downloads going forward, until you change it at a later send. Like
+everything else this mod sends, it travels in a plain-HTTP query string —
+treat it as a room code, not a real credential.
+
 
 
 ## Save identity (why "different save" means different SLOT)
@@ -127,8 +150,5 @@ this ghost.
   on return and `jump_if_false`/`label` resolving by string name — both
   confirmed from source, but this exact combination hasn't been run live yet.
 
- ## Coming Soon
+## Coming Soon
 - Level locking per region, players wont be able to spawn ghosts with high levels near low level areas.
-- Different Ghost avatars, select which sprite you want your ghost to have
-- passwords for ghost connection, so friends or streamers can have dedicated runs with invite only for ghosts. 
-  

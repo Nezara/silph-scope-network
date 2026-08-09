@@ -1,7 +1,7 @@
 {
-  "id": "vrm_rival_ghosts",
+  "id": "silphscope_network",
   "name": "SilphScope-Network",
-  "version": "0.8.5",
+  "version": "0.9.0",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -15,5 +15,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "conflicts": [],
-  "description": "Send your current character (map position + party) to a shared file that lives outside any save (or, with experimental ONLINE MODE, to a small server too). Other saves find your sent character standing where you left them: it spots you and forces a battle, with optional dialogue you wrote. Once beaten, interact with it to hear its after-battle line again (or fight again if repeatable battles are on). Test build."
+  "description": "Send your current character (map position + party, plus a choice of 6 ghost sprites) to a shared file that lives outside any save (or, with experimental ONLINE MODE, to a small server too, optionally password-gated to a private pool). Other saves find your sent character standing where you left them: it spots you and forces a battle, with optional dialogue you wrote. Once beaten, interact with it to hear its after-battle line again (or fight again if repeatable battles are on). Test build."
 }

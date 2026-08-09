@@ -1,5 +1,5 @@
--- vrm_rival_ghosts -- send your current character to a shared file so it can be
--- battled as an enemy trainer in your OTHER saves.
+-- silphscope_network -- send your current character to a shared file so it
+-- can be battled as an enemy trainer in your OTHER saves.
 --
 -- Persistence, capture (Start-menu "SEND GHOST"), and the shared-file model
 -- mirror vrm_pokemon_bank. Every ghost is a GHOST SIGHT trainer by default:
@@ -7,7 +7,7 @@
 -- battle (with optional before/after dialogue the sending player wrote).
 -- Once beaten (per receiving save, via the engine's Flags module), it stops
 -- hunting and becomes an interact-only NPC: pressing the interact button
--- while facing it just replays its after-battle line, unless ENABLE
+-- while facing it just replays its after-battle line, unless
 -- REPEATABLE GHOST BATTLES is on, in which case it fights you again in full.
 -- Overworld spawning + battle wiring use mod.world plus game.data.trainers
 -- injection and the engine's own script verbs (start_battle, move_npc_to,
@@ -21,10 +21,10 @@
 -- payload. See README.md for the server side and full writeup.
 --
 -- See README.md for what's confirmed working live vs. still first-cut.
--- Search the debug log (rival_ghosts/debug.log) for "[rival_ghosts]".
+-- Search the debug log (silphscope_network/debug.log) for "[silphscope_network]".
 
-local MOD_ID          = "vrm_rival_ghosts"
-local STORAGE_DIR     = "rival_ghosts"
+local MOD_ID          = "silphscope_network"
+local STORAGE_DIR     = "silphscope_network"
 local STORAGE_FILE    = STORAGE_DIR .. "/ghosts.lua"
 local STORAGE_BACKUP  = STORAGE_FILE .. ".bak"
 local STORAGE_TMP     = STORAGE_FILE .. ".tmp"
@@ -32,13 +32,35 @@ local STORAGE_VERSION = 1
 
 -- Keys/prefixes for the runtime objects we create. Kept namespaced so nothing
 -- collides with vanilla data.
-local TRAINER_PREFIX  = "OPP_VRM_RG_"     -- injected game.data.trainers[...] key
-local NPC_NAME_PREFIX = "VRM_RG_NPC_"
+local TRAINER_PREFIX  = "OPP_SSN_"     -- injected game.data.trainers[...] key
+local NPC_NAME_PREFIX = "SSN_NPC_"
 
--- The player's own likeness. trainer_card/red.png is RED's front art -- the
--- closest thing to "the player as an opponent".
+-- The player's own likeness (default, used when no GHOST SPRITE option is
+-- toggled on). trainer_card/red.png is RED's front art -- the closest thing
+-- to "the player as an opponent".
 local PLAYER_PIC    = "assets/generated/trainer_card/red.png"
 local PLAYER_SPRITE = "SPRITE_RED"        -- overworld sprite for the ghost NPC
+
+-- Selectable ghost sprites (main.lua's GHOST SPRITE toggles below pick one of
+-- these by option key; PLAYER_PIC/PLAYER_SPRITE above are the fallback when
+-- none is toggled on). Each has real matching front art under
+-- assets/generated/battle/trainers/, confirmed against trainers.lua's own
+-- `pic` field for the equivalent vanilla trainer class -- same sprite/pic
+-- pairing style used for every other trainer in this engine's own data.
+local GHOST_SPRITES = {
+  { key = "sprite_biker",        label = "GHOST SPRITE: BIKER",
+    sprite = "SPRITE_BIKER",        pic = "assets/generated/battle/trainers/biker.png" },
+  { key = "sprite_cooltrainerm",  label = "GHOST SPRITE: COOLTRAINER (M)",
+    sprite = "SPRITE_COOLTRAINER_M", pic = "assets/generated/battle/trainers/cooltrainerm.png" },
+  { key = "sprite_hiker",         label = "GHOST SPRITE: HIKER",
+    sprite = "SPRITE_HIKER",        pic = "assets/generated/battle/trainers/hiker.png" },
+  { key = "sprite_beauty",        label = "GHOST SPRITE: BEAUTY",
+    sprite = "SPRITE_BEAUTY",       pic = "assets/generated/battle/trainers/beauty.png" },
+  { key = "sprite_cooltrainerf",  label = "GHOST SPRITE: COOLTRAINER (F)",
+    sprite = "SPRITE_COOLTRAINER_F", pic = "assets/generated/battle/trainers/cooltrainerf.png" },
+  { key = "sprite_channeler",     label = "GHOST SPRITE: CHANNELER",
+    sprite = "SPRITE_CHANNELER",    pic = "assets/generated/battle/trainers/channeler.png" },
+}
 
 -- Optional before/after-battle dialogue, authored by the SENDING player at
 -- SEND GHOST time (see sendSelf). Comparable to a normal NPC's line length --
@@ -170,8 +192,25 @@ return function(mod)
   -- "number"` (with min/max/step) DOES work in this engine -- ONLINE GHOST
   -- COUNT rendered and worked fine, it just took the others down with it as
   -- a side effect of the two-call split, not because the type was rejected.
+  -- GHOST SPRITE: mod.options has no confirmed picker/dropdown type (only
+  -- "toggle" and "number" are confirmed working -- see the numeric-type note
+  -- below), so a choice of 6 sprites is modeled as 6 mutually-exclusive
+  -- toggles, each self-labeled with the sprite name, rather than an
+  -- unlabeled numeric index the player would need a legend to decode. Built
+  -- from GHOST_SPRITES so the option list and the lookup table can't drift
+  -- apart. Resolution (see selectedSprite below): first toggle found ON
+  -- wins, in GHOST_SPRITES order; none on falls back to PLAYER_SPRITE/
+  -- PLAYER_PIC (today's default, Red).
+  local function ghostSpriteOptionRows()
+    local rows = {}
+    for _, s in ipairs(GHOST_SPRITES) do
+      rows[#rows + 1] = { key = s.key, label = s.label, type = "toggle", default = false }
+    end
+    return rows
+  end
+
   local ONLINE_COUNT_SUPPORTED = pcall(function()
-    mod.options:define({
+    local rows = {
       -- ON (default) = ghost is a normal solid NPC (blocks movement, like
       -- any trainer). OFF = non-solid -- can't wall you into a softlock if
       -- it lands somewhere awkward. Wired via the live NPC handle's
@@ -199,7 +238,9 @@ return function(mod)
       -- above -- type="number" IS confirmed working in this engine.
       { key = "online_ghost_count", label = "ONLINE GHOST COUNT", type = "number",
         min = 1, max = 5, step = 1, default = ONLINE_DEFAULT_COUNT },
-    })
+    }
+    for _, row in ipairs(ghostSpriteOptionRows()) do rows[#rows + 1] = row end
+    mod.options:define(rows)
   end)
   if not ONLINE_COUNT_SUPPORTED then
     -- Extremely defensive fallback in case the WHOLE batch ever fails on some
@@ -214,6 +255,18 @@ return function(mod)
         { key = "online_mode", label = "ONLINE MODE", type = "toggle", default = false },
       })
     end)
+  end
+
+  -- First GHOST_SPRITES entry with its toggle on wins; none on -> the
+  -- PLAYER_SPRITE/PLAYER_PIC default (Red). Read fresh at SEND GHOST time
+  -- (not cached), so flipping the option before a send takes effect
+  -- immediately, same as every other option this mod has.
+  local function selectedSprite()
+    for _, s in ipairs(GHOST_SPRITES) do
+      local ok, on = pcall(function() return mod.options:get(s.key) end)
+      if ok and on == true then return s.sprite, s.pic end
+    end
+    return PLAYER_SPRITE, PLAYER_PIC
   end
 
   local SaveData       = require("src.core.SaveData")
@@ -243,8 +296,8 @@ return function(mod)
   local fileLog = function(_) end
 
   local function log(fmt, ...)
-    local ok, s = pcall(string.format, "[rival_ghosts] " .. fmt, ...)
-    local line = ok and s or ("[rival_ghosts] " .. tostring(fmt))
+    local ok, s = pcall(string.format, "[silphscope_network] " .. fmt, ...)
+    local line = ok and s or ("[silphscope_network] " .. tostring(fmt))
     mod.log:info("%s", line)
     fileLog(line)
   end
@@ -295,7 +348,7 @@ return function(mod)
   end
 
   local function freshStorage()
-    return { version = STORAGE_VERSION, ghosts = {}, nextId = 1 }
+    return { version = STORAGE_VERSION, ghosts = {}, nextId = 1, passwords = {} }
   end
 
   local storage           -- in-memory cache, lazy-loaded
@@ -304,6 +357,10 @@ return function(mod)
   local function normalize(s)
     s.ghosts = type(s.ghosts) == "table" and s.ghosts or {}
     s.nextId = math.max(1, math.floor(tonumber(s.nextId) or 1))
+    -- passwords: added later than ghosts/nextId, so older storage files on
+    -- disk simply won't have this key yet -- default it in rather than
+    -- requiring every reader to guard against a missing table.
+    s.passwords = type(s.passwords) == "table" and s.passwords or {}
     return s
   end
 
@@ -324,7 +381,7 @@ return function(mod)
     pcall(function() fs().createDirectory(STORAGE_DIR) end)
     local ok, encoded = pcall(SaveSerializer.encode, storage)
     if not ok then
-      mod.log:warn("[rival_ghosts] could not encode storage: %s", tostring(encoded))
+      mod.log:warn("[silphscope_network] could not encode storage: %s", tostring(encoded))
       return
     end
     if fileExists(STORAGE_FILE) then
@@ -332,11 +389,11 @@ return function(mod)
       if prev then tryWrite(STORAGE_BACKUP, prev) end
     end
     if not tryWrite(STORAGE_TMP, encoded) then
-      mod.log:warn("[rival_ghosts] could not stage %s", STORAGE_TMP); return
+      mod.log:warn("[silphscope_network] could not stage %s", STORAGE_TMP); return
     end
     tryRemove(STORAGE_FILE)
     if not tryWrite(STORAGE_FILE, encoded) then
-      mod.log:warn("[rival_ghosts] could not write %s", STORAGE_FILE); return
+      mod.log:warn("[silphscope_network] could not write %s", STORAGE_FILE); return
     end
     tryRemove(STORAGE_TMP)
     dirty = false
@@ -344,7 +401,7 @@ return function(mod)
   end
 
   -- ---------------------------------------------------------------------
-  -- File logger -> rival_ghosts/debug.log (next to ghosts.lua). mod.log
+  -- File logger -> silphscope_network/debug.log (next to ghosts.lua). mod.log
   -- output isn't visible in a normal run, so this is our window into the
   -- runtime checks. Written immediately (not on the save schedule) and
   -- size-capped so it can't grow without bound.
@@ -363,7 +420,7 @@ return function(mod)
     if #prev > 200000 then prev = prev:sub(-100000) end
     tryWrite(LOG_FILE, prev .. entry)
   end
-  fileLog(("==== rival_ghosts session start (portableFs=%s, world=%s, online=%s, countOption=%s) ===="):format(
+  fileLog(("==== silphscope_network session start (portableFs=%s, world=%s, online=%s, countOption=%s) ===="):format(
     tostring(SaveData.portableFs() ~= nil), tostring(mod.world ~= nil),
     tostring(ONLINE_AVAILABLE), tostring(ONLINE_COUNT_SUPPORTED)))
 
@@ -454,7 +511,7 @@ return function(mod)
   -- notes above), and naturally scoped per receiving save: each save
   -- independently tracks whether IT has beaten a given shared ghost.
   local function defeatFlagName(rec)
-    return "VRM_RG_DEFEATED_" .. tostring(rec.origin) .. "_" .. tostring(rec.id)
+    return "SSN_DEFEATED_" .. tostring(rec.origin) .. "_" .. tostring(rec.id)
   end
   local function isDefeated(game, rec)
     local sv = game and game.save
@@ -493,11 +550,11 @@ return function(mod)
       id       = class,
       index    = -1,
       name     = rec.name or "RIVAL",
-      pic      = PLAYER_PIC,
+      pic      = rec.pic or PLAYER_PIC,
       parties  = { slots },
       aiMods   = { 1 },
       baseMoney = 0,
-      source   = "vrm_rival_ghosts",
+      source   = MOD_ID,
     }
     return class
   end
@@ -581,10 +638,10 @@ return function(mod)
   local function spawnOneGhost(game, w, mapId, rec)
     injectTrainer(game, rec)  -- ensure the trainer class exists before any battle
     local name = NPC_NAME_PREFIX .. rec.id
-    local objDef = { name = name, sprite = PLAYER_SPRITE, movement = "STAY", range = normalizeDir(rec.facing), x = rec.x, y = rec.y }
+    local objDef = { name = name, sprite = rec.sprite or PLAYER_SPRITE, movement = "STAY", range = normalizeDir(rec.facing), x = rec.x, y = rec.y }
     local npc, err = w:spawnNpc(mapId, objDef)
     if not npc then
-      mod.log:warn("[rival_ghosts] spawnNpc failed on %s: %s", tostring(mapId), tostring(err))
+      mod.log:warn("[silphscope_network] spawnNpc failed on %s: %s", tostring(mapId), tostring(err))
       return false
     end
     if not spawned._loggedShape then
@@ -711,6 +768,7 @@ return function(mod)
         id = rec.origin, name = rec.name, mapId = rec.mapId,
         x = rec.x, y = rec.y, facing = rec.facing, party = party,
         beforeText = rec.beforeText, afterText = rec.afterText,
+        sprite = rec.sprite, pic = rec.pic, password = rec.password or "",
       }
       local jsonStr = Json.encode(payload)
       if #jsonStr > ONLINE_UPLOAD_MAX_BYTES then
@@ -734,8 +792,15 @@ return function(mod)
     local okBuild, jobId = pcall(function()
       local maps = table.concat(nearbyMapIds(game, mapId), ",")
       local origin = saveOriginId(game)
-      local url = string.format("%s/nearby?maps=%s&count=%d&exclude=%s",
-        ONLINE_SERVER_URL, urlEncodeComponent(maps), onlineGhostCount(), urlEncodeComponent(origin))
+      -- This save's own remembered password (see finalizeSend/askPassword),
+      -- not anything tied to a specific ghost -- governs what THIS player
+      -- can see: public (no-password) ghosts always match, plus anything
+      -- uploaded under the same password. Defaults to "" (public) if this
+      -- save has never set one.
+      local password = loadStorage().passwords[origin] or ""
+      local url = string.format("%s/nearby?maps=%s&count=%d&exclude=%s&password=%s",
+        ONLINE_SERVER_URL, urlEncodeComponent(maps), onlineGhostCount(), urlEncodeComponent(origin),
+        urlEncodeComponent(password))
       return Fetch.get(url, { maxSeconds = 15 })
     end)
     if okBuild and jobId then
@@ -780,6 +845,8 @@ return function(mod)
       party = serverGhost.party,
       beforeText = serverGhost.beforeText,
       afterText = serverGhost.afterText,
+      sprite = type(serverGhost.sprite) == "string" and serverGhost.sprite or nil,
+      pic = type(serverGhost.pic) == "string" and serverGhost.pic or nil,
     }
     return spawnOneGhost(game, w, mapId, rec)
   end
@@ -884,9 +951,9 @@ return function(mod)
     local rows = {}
     if rec.beforeText then rows[#rows + 1] = { "show_text", rec.beforeText } end
     rows[#rows + 1] = { "start_battle", "trainer", class, 1 }
-    rows[#rows + 1] = { "jump_if_false", "vrm_rg_no_win" }
+    rows[#rows + 1] = { "jump_if_false", "ssn_no_win" }
     rows[#rows + 1] = { "set_flag", defeatFlagName(rec) }
-    rows[#rows + 1] = { "label", "vrm_rg_no_win" }
+    rows[#rows + 1] = { "label", "ssn_no_win" }
     if rec.afterText then rows[#rows + 1] = { "show_text", rec.afterText } end
     return rows
   end
@@ -1119,7 +1186,7 @@ return function(mod)
   -- cancel path (B only backspaces), so this is the way out if the player
   -- changes their mind mid-typing.
   -- =====================================================================
-  local function finalizeSend(game, cur, beforeText, afterText)
+  local function finalizeSend(game, cur, beforeText, afterText, password)
     local s = loadStorage()
     local origin = saveOriginId(game)
     local replaced = 0
@@ -1129,6 +1196,7 @@ return function(mod)
         replaced = replaced + 1
       end
     end
+    local sprite, pic = selectedSprite()
     local rec = {
       id        = s.nextId,
       origin    = origin,
@@ -1141,18 +1209,52 @@ return function(mod)
       createdAt = os.time and os.time() or 0,
       beforeText = (beforeText ~= "" and beforeText) or nil,
       afterText  = (afterText ~= "" and afterText) or nil,
+      sprite     = sprite,
+      pic        = pic,
+      password   = password or "",
     }
     s.nextId = s.nextId + 1
     s.ghosts[#s.ghosts + 1] = rec
+    -- Remembered per-save, not just attached to this one ghost, so a
+    -- SEND-less later /nearby fetch (see startOnlineNearbyFetch) still
+    -- knows this save's current password without re-sending.
+    s.passwords[origin] = rec.password
     markDirty()
-    log("captured ghost #%d '%s' at map=%s (%s,%s) party=%d dialogue=%s/%s (replaced %d previous)",
+    log("captured ghost #%d '%s' at map=%s (%s,%s) party=%d dialogue=%s/%s sprite=%s password=%s (replaced %d previous)",
       rec.id, rec.name, tostring(rec.mapId), tostring(rec.x), tostring(rec.y), #rec.party,
-      tostring(rec.beforeText ~= nil), tostring(rec.afterText ~= nil), replaced)
+      tostring(rec.beforeText ~= nil), tostring(rec.afterText ~= nil), tostring(sprite),
+      tostring(rec.password ~= ""), replaced)
     startOnlineUpload(game, rec)  -- no-op if ONLINE MODE is off; async either way
     local msg = replaced > 0
       and "Your old ghost was\nrecalled.\f%s now waits\nhere for other\nworlds to find."
       or "Your ghost was\nsent to the void!\f%s now waits\nhere for other\nworlds to find."
     game.stack:push(TextBox.new(game, msg:format(rec.name)))
+  end
+
+  -- Online password: a "room code" for ONLINE MODE, not a real credential
+  -- (see README -- it travels in a plain-HTTP query string same as
+  -- everything else this mod sends). A ghost uploaded with NO password is
+  -- visible to every downloader; a ghost uploaded WITH a password is only
+  -- visible to downloaders whose own remembered password matches exactly.
+  -- Prefilled with whatever this save last set, so repeat sends can just
+  -- say no and keep reusing it without retyping.
+  local function askPassword(game, cur, beforeText, afterText)
+    local s = loadStorage()
+    local current = s.passwords[saveOriginId(game)] or ""
+    game.stack:push(TextBox.new(game, "Set an online\npassword?", function()
+      game.stack:push(ChoiceBox.new(game, function(yes)
+        if not yes then
+          finalizeSend(game, cur, beforeText, afterText, current)
+          return
+        end
+        game.stack:push(NamingScreen.new(game, {
+          title   = "ONLINE PASSWORD",
+          maxLen  = DIALOGUE_MAX_LEN,
+          default = current,
+          onDone  = function(text) finalizeSend(game, cur, beforeText, afterText, text) end,
+        }))
+      end, { defaultNo = true, noSound = true }))
+    end))
   end
 
   -- ChoiceBox renders only a YES/NO selector, no text of its own (confirmed
@@ -1161,12 +1263,12 @@ return function(mod)
   local function askAfterText(game, cur, beforeText)
     game.stack:push(TextBox.new(game, "Add an after-\nbattle line too?", function()
       game.stack:push(ChoiceBox.new(game, function(yes)
-        if not yes then finalizeSend(game, cur, beforeText, ""); return end
+        if not yes then askPassword(game, cur, beforeText, ""); return end
         game.stack:push(NamingScreen.new(game, {
           title   = "AFTER-BATTLE LINE",
           maxLen  = DIALOGUE_MAX_LEN,
           default = "",
-          onDone  = function(text) finalizeSend(game, cur, beforeText, text) end,
+          onDone  = function(text) askPassword(game, cur, beforeText, text) end,
         }))
       end, { defaultNo = true, noSound = true }))
     end))
@@ -1202,7 +1304,7 @@ return function(mod)
         if yes then
           askBeforeText(game, cur)
         else
-          finalizeSend(game, cur, "", "")
+          askPassword(game, cur, "", "")
         end
       end, { defaultNo = true, noSound = true }))
     end))
@@ -1256,5 +1358,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.8.5)")
+  log("loaded (v0.9.0)")
 end
