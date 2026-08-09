@@ -137,7 +137,7 @@ this ghost.
   confirmed from source, but this exact combination hasn't been run live yet.
 
  ## Coming Soon
-- Level locking per region, no level 100 ghosts anywhere near pallet town or low level areas.
+- Level locking per region, players wont be able to spawn ghosts with high levels near low level areas.
 - Different Ghost avatars, select which sprite you want your ghost to have
 - passwords for ghost connection, so friends or streamers can have dedicated runs with invite only for ghosts. 
   
