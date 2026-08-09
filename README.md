@@ -136,9 +136,8 @@ this ghost.
   on return and `jump_if_false`/`label` resolving by string name — both
   confirmed from source, but this exact combination hasn't been run live yet.
 
-
-  ## Coming Soon
-  - Level locking per region, no level 100 ghosts anywhere near pallet town or low level areas. 
-  - Different Ghost avatars, select which sprite you want your ghost to have
-  - passwords for ghost connection, so friends or streamers can have dedicated runs with invite only for ghosts. 
+ ## Coming Soon
+- Level locking per region, no level 100 ghosts anywhere near pallet town or low level areas.
+-  - Different Ghost avatars, select which sprite you want your ghost to have
+- passwords for ghost connection, so friends or streamers can have dedicated runs with invite only for ghosts. 
   
