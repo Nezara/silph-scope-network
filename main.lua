@@ -1394,5 +1394,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.9.1)")
+  log("loaded (v0.9.2)")
 end
