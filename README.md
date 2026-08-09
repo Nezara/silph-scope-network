@@ -1,4 +1,4 @@
-# Silph Scope Network (test build 0.9.2)
+# Silph Scope Network (test build 0.9.3)
 -- Created with AI/Vibe Coding--
 
 Send your current character to another save as enemy trainer you can fight!
@@ -136,6 +136,28 @@ their own. Opens the same text-entry screen, prefilled with whatever this
 save currently has set; typing a new value (or clearing it to blank)
 updates it immediately, no ghost upload involved. Whichever was set most
 recently — here or at a SEND GHOST — is what's currently in effect.
+
+**Careful — passwords are not symmetric.** This trips people up: if save A
+sends with password `TEST` and save B has no password, **B will not see A's
+ghost** (A's ghost is private to the `TEST` pool), but A *will* still see
+B's public ghost. If you're testing between two of your own saves and one
+of them has a password set, that alone can look exactly like "online mode
+is broken." Set both to the same password, or clear both to blank.
+
+**Diagnosing "I see no online ghosts"**: check
+`silphscope_network/debug.log` in your save folder. Every map entry with
+ONLINE MODE on now logs the request (including whether a password is in
+play) and the result, e.g.:
+
+```
+online: requesting ghosts for map ROUTE_1 (password SET)
+online: server returned 0 ghost(s), spawned 0 on map ROUTE_1
+```
+
+`returned 0` means the server had nothing matching those maps *and* that
+password — usually the password mismatch above, or genuinely nobody else
+nearby. `returned 2, spawned 0` instead means the records arrived but were
+skipped client-side (already present locally, or malformed).
 
 
 

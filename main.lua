@@ -62,6 +62,17 @@ local GHOST_SPRITES = {
     sprite = "SPRITE_CHANNELER",    pic = "assets/generated/battle/trainers/channeler.png" },
 }
 
+-- sprite name -> its OWN pic, used to validate a DOWNLOADED ghost's look.
+-- A downloaded ghost's sprite/pic arrive as arbitrary strings from another
+-- player's client, so they are never trusted directly: the sprite name is
+-- looked up here and the pic is taken from OUR copy, never from the wire.
+-- Without this, a malformed/hostile value reaches spawnNpc as an unknown
+-- sprite (ghost silently fails to spawn) or the battle renderer as an
+-- arbitrary asset path (crashes into lua-error.log, which a mod can't even
+-- see). Anything not in this table falls back to the Red default.
+local SPRITE_BY_NAME = {}
+for _, s in ipairs(GHOST_SPRITES) do SPRITE_BY_NAME[s.sprite] = s.pic end
+
 -- Optional before/after-battle dialogue, authored by the SENDING player at
 -- SEND GHOST time (see sendSelf). Comparable to a normal NPC's line length --
 -- vanilla trainer battle lines in this engine's own text data commonly run
@@ -805,6 +816,13 @@ return function(mod)
     end)
     if okBuild and jobId then
       pendingNearby = { jobId = jobId, forMapId = mapId }
+      -- Log whether a password is in play (never the password itself). A
+      -- passworded save only ever sees public ghosts plus its own pool, so
+      -- "0 ghosts" with a password set is expected behavior, not a fault --
+      -- without this line the two are impossible to tell apart in the log.
+      local pw = loadStorage().passwords[saveOriginId(game)] or ""
+      log("online: requesting ghosts for map %s (password %s)",
+        tostring(mapId), pw ~= "" and "SET" or "none/public")
     else
       log("online nearby fetch failed to start: %s", tostring(jobId))
     end
@@ -834,10 +852,31 @@ return function(mod)
         tostring(serverGhost.id), tostring(mapId))
       return false
     end
+    -- Identity MUST change when the sender re-sends, or their brand-new
+    -- ghost inherits the previous one's defeat flag and spawns already
+    -- beaten -- it won't hunt you, it just stands there replaying an
+    -- after-battle line (confirmed by inspection, v0.9.0-0.9.2). Local mode
+    -- never had this: a local send takes a fresh incrementing s.nextId, so
+    -- each send is genuinely a new encounter (the v0.7.2 rule). The online
+    -- id was derived from the sender's origin ALONE, which never changes,
+    -- so it silently broke that rule. Folding in the server's uploadedAt
+    -- restores it: same upload -> same id (defeat state persists correctly
+    -- across sessions), new upload -> new id (correctly undefeated).
+    -- %.0f, not tostring(): Lua 5.1 renders a 13-digit ms timestamp in
+    -- scientific notation, which would collapse distinct sends together.
     local safeId = sanitizeId(serverGhost.id)
+    local stamp = tonumber(serverGhost.uploadedAt)
+    local uid = "online_" .. safeId
+    if stamp then uid = uid .. "_" .. string.format("%.0f", stamp) end
+    -- Never trust the wire's sprite/pic (see SPRITE_BY_NAME): match the
+    -- sprite name against our own table and take the pic from our copy.
+    local sprite, pic = PLAYER_SPRITE, PLAYER_PIC
+    if type(serverGhost.sprite) == "string" and SPRITE_BY_NAME[serverGhost.sprite] then
+      sprite, pic = serverGhost.sprite, SPRITE_BY_NAME[serverGhost.sprite]
+    end
     local rec = {
-      id = "online_" .. safeId,
-      origin = "online_" .. safeId,
+      id = uid,
+      origin = uid,
       sourceOrigin = serverGhost.id,  -- raw origin, for mapOrigins dedup (see above) -- NOT for trainer/flag namespacing
       name = serverGhost.name or "RIVAL",
       mapId = mapId,
@@ -845,8 +884,8 @@ return function(mod)
       party = serverGhost.party,
       beforeText = serverGhost.beforeText,
       afterText = serverGhost.afterText,
-      sprite = type(serverGhost.sprite) == "string" and serverGhost.sprite or nil,
-      pic = type(serverGhost.pic) == "string" and serverGhost.pic or nil,
+      sprite = sprite,
+      pic = pic,
     }
     return spawnOneGhost(game, w, mapId, rec)
   end
@@ -893,9 +932,16 @@ return function(mod)
               for _, g in ipairs(decoded.ghosts) do
                 if spawnOnlineGhost(game, w, forMapId, g) then n = n + 1 end
               end
-              if n > 0 then log("online: spawned %d ghost(s) from server on map %s", n, tostring(forMapId)) end
+              -- Always log, including the returned-0 / spawned-0 cases: a
+              -- silent no-op here is indistinguishable from "the feature is
+              -- broken". "returned" vs "spawned" separates a server-side
+              -- miss (no match for these maps + this password) from a
+              -- client-side skip (dedup against a local copy, or a
+              -- malformed record), which are very different problems.
+              log("online: server returned %d ghost(s), spawned %d on map %s",
+                #decoded.ghosts, n, tostring(forMapId))
             else
-              log("online nearby response invalid, ignoring")
+              log("online nearby response invalid, ignoring: %s", tostring(result.body))
             end
           end
         else
@@ -1394,5 +1440,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.9.2)")
+  log("loaded (v0.9.3)")
 end
