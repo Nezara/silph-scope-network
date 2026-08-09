@@ -82,7 +82,7 @@ blocked by default (safe-by-default, since this is a restriction).
 
 ## Online mode (experimental, 0.8.2)
 
-A small server (Cloudflare Worker + KV) that ghosts can additionally upload
+A small server (Cloudflare Worker + D1) that ghosts can additionally upload
 to and download from, layered on top of the local shared-file system (which
 keeps working exactly as before regardless of this setting). Turn on
 **ONLINE MODE** in the mod options to use it.
@@ -114,9 +114,6 @@ module (`save.flags`), not shared globally across every save that fights
 this ghost.
 
 ## Known limitations:
-- The server's own storage is a single JSON list, not a real database —
-  fine for an experimental feature with a handful of testers, but concurrent
-  uploads aren't perfectly atomic (a rare race could drop one).
 - Downloaded ghosts don't carry exact IVs (same limitation local ghosts
   already have).
 - If a download result arrives after you've already left the map it was
