@@ -46,14 +46,11 @@ When you **SEND GHOST**, you're asked:
   (0.8.1) after an 0.8.0 bug (see changelog) briefly made it look
   unsupported; it wasn't the type, it was a `mod.options:define()` call
   wiping out the other options.
-- **GHOST SPRITE: \<name\>** — six toggles (BIKER, COOLTRAINER (M), HIKER,
-  BEAUTY, COOLTRAINER (F), CHANNELER), all OFF by default. Turn one ON to
-  make your NEXT sent ghost use that overworld sprite and matching battle
-  art instead of the default (Red). If more than one is somehow ON at once,
-  the first match in that list order wins; if none are on, you get Red.
-  Read fresh at SEND GHOST time, so flipping this before a send takes
-  effect immediately — it doesn't change ghosts you've already sent.
-
+- **GHOST SPRITE: \<name\>**
+— six toggles, Male - Biker, Cool Trainer, Hiker, Female - Beauty, Cool Trainer and Channeler
+- all OFF by default.
+- Turn one ON to make your NEXT sent ghost use that overworld sprite and matching battle
+  art instead of the default (Red). Turning on more than one may invalidate your ghost. 
 
 **Sending is one-ghost-per-save.** SEND GHOST always replaces whatever this
 save already has out there — it doesn't accumulate. The new ghost has a
