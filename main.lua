@@ -757,7 +757,19 @@ return function(mod)
   local pendingNearby   -- { jobId = ..., forMapId = ... } or nil
 
   local function startOnlineUpload(game, rec)
-    if not (ONLINE_AVAILABLE and onlineModeOn()) then return end
+    -- Say WHY we're not uploading. This used to return in total silence,
+    -- which made the single most common failure -- ONLINE MODE simply being
+    -- off (it defaults to off) -- completely undiagnosable: the send still
+    -- reports "sent to the void!" exactly like a successful one, so a new
+    -- player has no way to tell their ghost never left the machine.
+    if not ONLINE_AVAILABLE then
+      log("online upload skipped: engine networking/JSON unavailable in this build")
+      return
+    end
+    if not onlineModeOn() then
+      log("online upload skipped: ONLINE MODE option is OFF (it defaults to off)")
+      return
+    end
     if pendingUpload then
       log("online upload skipped: a previous upload is still in flight")
       return
@@ -1274,7 +1286,16 @@ return function(mod)
     local msg = replaced > 0
       and "Your old ghost was\nrecalled.\f%s now waits\nhere for other\nworlds to find."
       or "Your ghost was\nsent to the void!\f%s now waits\nhere for other\nworlds to find."
-    game.stack:push(TextBox.new(game, msg:format(rec.name)))
+    msg = msg:format(rec.name)
+    -- Be explicit that a send with ONLINE MODE off never leaves this
+    -- machine. Without this the confirmation is identical either way, so
+    -- testers reasonably assumed their ghost had gone out to other players
+    -- when it had only ever been written to the local shared file (the
+    -- single most likely reason a tester's upload "didn't work").
+    if not onlineModeOn() then
+      msg = msg .. "\fONLINE MODE is off,\nso this ghost stays\non this machine."
+    end
+    game.stack:push(TextBox.new(game, msg))
   end
 
   -- Online password: a "room code" for ONLINE MODE, not a real credential
@@ -1440,5 +1461,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.9.3)")
+  log("loaded (v0.9.4)")
 end

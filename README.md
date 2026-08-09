@@ -1,4 +1,4 @@
-# Silph Scope Network (test build 0.9.3)
+# Silph Scope Network (test build 0.9.4)
 -- Created with AI/Vibe Coding--
 
 Send your current character to another save as enemy trainer you can fight!
@@ -149,6 +149,26 @@ online: server returned 0 ghost(s), spawned 0 on map ROUTE_1
 password — usually the password mismatch above, or genuinely nobody else
 nearby. `returned 2, spawned 0` instead means the records arrived but were
 skipped client-side (already present locally, or malformed).
+
+## "I sent a ghost but nobody else can see it"
+
+Read this first if you're testing with other people — in practice almost
+every report of this has one of two causes, and neither is a network fault:
+
+1. **ONLINE MODE was off.** It defaults to **off**, and before 0.9.4 a send
+   with it off gave you the *exact same* "sent to the void!" confirmation as
+   a real upload — so it looked like it worked while the ghost never left
+   your machine. Turn ONLINE MODE on in the mod options, then send again.
+   As of 0.9.4 the confirmation says so outright, and `debug.log` records
+   `online upload skipped: ONLINE MODE option is OFF`.
+2. **You sent from a town.** Town and city exteriors are blocked send
+   locations (see above), and the early game is mostly towns — a brand new
+   save standing in Pallet Town can't send at all. You'll get *"Unable to
+   send ghost. Invalid location."* Walk out to a route and try there.
+
+A successful online send logs `online upload started` followed by
+`online upload finished: {"ok":true}`, and shows a second **"Ghost uploaded
+online!"** message in game. If you see neither, it never went out.
 
 
 
