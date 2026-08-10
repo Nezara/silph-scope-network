@@ -6,6 +6,8 @@ Send your current character to another save as enemy trainer you can fight!
 Save your current player character's location and current pokemon party to an external file. Load a different save and engage with them as a enemy trainer! 
 Mod Options allow you to repeat the fight if you wish. 
 
+### There is currently a bug in online mod preventing players from uploading their ghosts, I am looking into this. Please reach out on the Gen1Recomp Dsicord if you would like to assist in testing and trouble shooting.
+
 ## How to Use
 1. In the Start Menu there is an option to "Send Ghost" which sends your current player character and pokemon party to an external file.
 2. you will be provided the option to leave both pre-fight and post-fight dialogue, then to set an online password (see Online mode below).
