@@ -33,9 +33,11 @@ When you **SEND GHOST**, you're asked:
 - **REPEATABLE GHOST BATTLES** — OFF (default): a defeated ghost only
   replays dialogue on interact. ON: interacting with a defeated ghost starts
   a full rematch instead.
-- **ONLINE MODE** — OFF (default). See below.
+- **OFFLINE MODE** — OFF (default), meaning ONLINE MODE is active out of the
+  box. Turn OFFLINE MODE **ON** to opt a save out entirely and keep it
+  local-only (no server upload, no download) — see below.
 - **ONLINE GHOST COUNT** — 1-5, default 3. How many ghosts to request from
-  the server per map (only matters with ONLINE MODE on).
+  the server per map (only matters unless OFFLINE MODE is on).
 - **GHOST SPRITE** — a single dropdown (cycle with left/right), default
   **RED (DEFAULT)**. Picks which overworld sprite + battle art your NEXT sent
   ghost uses; doesn't change one already out there (same rule as
@@ -77,25 +79,33 @@ Vermilion dock (neither is a town, both are open outdoor areas).
 **Blocked**: towns/cities, houses, marts, Pokémon Centers, gyms, Elite Four
 rooms, Oak's Lab, the Fighting Dojo, gates, and similar small interiors.
 
-## Online mode (experimental, 0.8.2)
+## Online mode (on by default)
 
-A small server (Cloudflare Worker + D1) that ghosts can additionally upload
-to and download from, layered on top of the local shared-file system (which
-keeps working exactly as before regardless of this setting). Turn on
-**ONLINE MODE** in the mod options to use it.
+A small server (Cloudflare Worker + D1) that ghosts additionally upload to
+and download from, layered on top of the local shared-file system (which
+keeps working exactly as before, regardless of this setting — local ghosts
+never leave the machine either way). **ONLINE MODE is on by default.**
 
-**Upload**: happens automatically whenever you **SEND GHOST** with ONLINE
-MODE on, using the exact same captured position/party/dialogue as the local
-send — no separate action. Fire-and-forget: you get your normal "ghost sent"
-confirmation immediately, and the upload itself completes in the background
-— once the server confirms it, you'll see a second "Ghost uploaded online!"
-message pop up.
+**OFFLINE MODE** (mod option, OFF by default) is the opt-out: turn it **ON**
+to keep a save entirely local — no uploads, no downloads, identical to how
+the mod behaved before online mode existed. Good for a save you don't want
+appearing on other players' machines, or for playing with no network at all.
 
-**Download**: whenever you enter a map with ONLINE MODE on, the mod asks the
-server for up to **ONLINE GHOST COUNT** ghosts on your current map or any
-map directly connected to it (computed from the game's own already-loaded
-map data — the server never needs to know the game's map layout), excluding
-your own upload. Matching ghosts get spawned the same way local ones do.
+**Upload**: happens automatically whenever you **SEND GHOST**, unless
+OFFLINE MODE is on, using the exact same captured position/party/dialogue as
+the local send — no separate action. Fire-and-forget: you get your normal
+"ghost sent" confirmation immediately, and the upload itself completes in
+the background — once the server confirms it, you'll see a second "Ghost
+uploaded online!" message pop up. With OFFLINE MODE on, the send
+confirmation says so explicitly, so it's never ambiguous whether a ghost
+went anywhere.
+
+**Download**: whenever you enter a map, unless OFFLINE MODE is on, the mod
+asks the server for up to **ONLINE GHOST COUNT** ghosts on your current map
+or any map directly connected to it (computed from the game's own
+already-loaded map data — the server never needs to know the game's map
+layout), excluding your own upload. Matching ghosts get spawned the same way
+local ones do.
 
 **GHOST REPORT (Start Menu)**: find out how your ghost is doing out there.
 Shows the map it's waiting on, how many trainers have found it, and its
@@ -114,9 +124,9 @@ win/loss record:
   ghost that's currently out, not to you forever, so a fresh send always
   starts at zero.
 
-Requires ONLINE MODE (a local-only ghost has nothing to report). Only
-downloaded ghosts report battles — fighting your own ghost from another
-save on the same machine doesn't count.
+Requires ONLINE MODE (i.e. OFFLINE MODE off) — a local-only ghost has
+nothing to report. Only downloaded ghosts report battles — fighting your own
+ghost from another save on the same machine doesn't count.
 
 **Password (private pools)**: at SEND GHOST time, after the dialogue
 prompts, you're asked *"Set an online password?"* (default **NO**, keeps

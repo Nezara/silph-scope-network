@@ -13,12 +13,14 @@
 -- injection and the engine's own script verbs (start_battle, move_npc_to,
 -- emote, show_text, set_flag/jump_if_false for win-detection).
 --
--- Experimental ONLINE MODE (option, default OFF): additionally uploads a
--- sent ghost to a small server and downloads other players' ghosts near the
--- current map, via the engine's async GET-only Fetch module (src/net/
--- Fetch.lua) and JSON codec (src/link/Json.lua) -- no POST exists anywhere
--- in this engine's networking, so "upload" is a GET with a base64-encoded
--- payload. See README.md for the server side and full writeup.
+-- ONLINE MODE (on by default): additionally uploads a sent ghost to a small
+-- server and downloads other players' ghosts near the current map, via the
+-- engine's async GET-only Fetch module (src/net/Fetch.lua) and JSON codec
+-- (src/link/Json.lua) -- no POST exists anywhere in this engine's
+-- networking, so "upload" is a GET with a base64-encoded payload. OFFLINE
+-- MODE (option, default off) opts a save out entirely, back to the original
+-- local-shared-file-only behavior. See README.md for the server side and
+-- full writeup.
 --
 -- See README.md for what's confirmed working live vs. still first-cut.
 -- Search the debug log (silphscope_network/debug.log) for "[silphscope_network]".
@@ -364,10 +366,11 @@ return function(mod)
       -- they're always fought via GHOST SIGHT, and this option only changes
       -- what happens AFTER a win.
       { key = "ghost_repeatable", label = "REPEATABLE GHOST BATTLES", type = "toggle", default = false },
-      -- OFF (default) = local shared-file ghosts only, unchanged from
-      -- before. ON = additionally uploads your sent ghost to a small server
-      -- and downloads other players' ghosts near your current map.
-      { key = "online_mode", label = "ONLINE MODE", type = "toggle", default = false },
+      -- OFF (default) = ONLINE MODE is active: your sent ghost also
+      -- uploads to a small server, and other players' ghosts near your
+      -- current map get downloaded too. ON = opt this save out entirely,
+      -- back to local shared-file ghosts only (no uploads, no downloads).
+      { key = "offline_mode", label = "OFFLINE MODE", type = "toggle", default = false },
       -- How many online ghosts to request per map, 1-5. See the big comment
       -- above -- type="number" IS confirmed working in this engine.
       { key = "online_ghost_count", label = "ONLINE GHOST COUNT", type = "number",
@@ -390,7 +393,7 @@ return function(mod)
       mod.options:define({
         { key = "ghost_collision", label = "GHOST COLLISION", type = "toggle", default = true },
         { key = "ghost_repeatable", label = "REPEATABLE GHOST BATTLES", type = "toggle", default = false },
-        { key = "online_mode", label = "ONLINE MODE", type = "toggle", default = false },
+        { key = "offline_mode", label = "OFFLINE MODE", type = "toggle", default = false },
       })
     end)
   end
@@ -913,13 +916,13 @@ return function(mod)
 
   -- =====================================================================
   -- ONLINE MODE: upload the sent ghost to the server, and download other
-  -- players' ghosts near the player's current map. Off by default (OFF has
-  -- zero behavior change from before). Both directions ride on Fetch's
-  -- async job/poll model -- nothing here blocks the game even if the server
-  -- is slow or unreachable.
+  -- players' ghosts near the player's current map. On by default; OFFLINE
+  -- MODE is the opt-out toggle for a local-only save. Both directions ride
+  -- on Fetch's async job/poll model -- nothing here blocks the game even if
+  -- the server is slow or unreachable.
   -- =====================================================================
   local function onlineModeOn()
-    return ONLINE_AVAILABLE and mod.options:get("online_mode") == true
+    return ONLINE_AVAILABLE and mod.options:get("offline_mode") ~= true
   end
 
   local function onlineGhostCount()
@@ -987,15 +990,15 @@ return function(mod)
   local function startOnlineUpload(game, rec)
     -- Say WHY we're not uploading. This used to return in total silence,
     -- which made the single most common failure -- ONLINE MODE simply being
-    -- off (it defaults to off) -- completely undiagnosable: the send still
-    -- reports "sent to the void!" exactly like a successful one, so a new
-    -- player has no way to tell their ghost never left the machine.
+    -- off -- completely undiagnosable: the send still reports "sent to the
+    -- void!" exactly like a successful one, so a new player has no way to
+    -- tell their ghost never left the machine.
     if not ONLINE_AVAILABLE then
       log("online upload skipped: engine networking/JSON unavailable in this build")
       return
     end
     if not onlineModeOn() then
-      log("online upload skipped: ONLINE MODE option is OFF (it defaults to off)")
+      log("online upload skipped: OFFLINE MODE option is ON")
       return
     end
     if pendingUpload then
@@ -1778,18 +1781,18 @@ return function(mod)
       rec.id, rec.name, tostring(rec.mapId), tostring(rec.x), tostring(rec.y), #rec.party,
       tostring(rec.beforeText ~= nil), tostring(rec.afterText ~= nil), tostring(sprite),
       tostring(rec.password ~= ""), replaced)
-    startOnlineUpload(game, rec)  -- no-op if ONLINE MODE is off; async either way
+    startOnlineUpload(game, rec)  -- no-op if OFFLINE MODE is on; async either way
     local msg = replaced > 0
       and "Your old ghost was\nrecalled.\f%s now waits\nhere for other\nworlds to find."
       or "Your ghost was\nsent to the void!\f%s now waits\nhere for other\nworlds to find."
     msg = msg:format(rec.name)
-    -- Be explicit that a send with ONLINE MODE off never leaves this
+    -- Be explicit that a send with OFFLINE MODE on never leaves this
     -- machine. Without this the confirmation is identical either way, so
     -- testers reasonably assumed their ghost had gone out to other players
     -- when it had only ever been written to the local shared file (the
     -- single most likely reason a tester's upload "didn't work").
     if not onlineModeOn() then
-      msg = msg .. "\fONLINE MODE is off,\nso this ghost stays\non this machine."
+      msg = msg .. "\fOFFLINE MODE is on,\nso this ghost stays\non this machine."
     end
     game.stack:push(TextBox.new(game, msg))
   end
@@ -1858,7 +1861,7 @@ return function(mod)
       return
     end
     if not onlineModeOn() then
-      game.stack:push(TextBox.new(game, "ONLINE MODE is off.\fTurn it on in the\nmod options to track\nyour ghost."))
+      game.stack:push(TextBox.new(game, "OFFLINE MODE is on.\fTurn it off in the\nmod options to track\nyour ghost."))
       return
     end
     if not startGhostReportFetch(game) then
