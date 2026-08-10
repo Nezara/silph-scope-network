@@ -1,4 +1,4 @@
-# Silph Scope Network (test build 0.9.5)
+# Silph Scope Network (test build 0.10.0)
 -- Created with AI/Vibe Coding--
 
 Send your current character to another save as enemy trainer you can fight!
@@ -103,6 +103,26 @@ server for up to **ONLINE GHOST COUNT** ghosts on your current map or any
 map directly connected to it (computed from the game's own already-loaded
 map data — the server never needs to know the game's map layout), excluding
 your own upload. Matching ghosts get spawned the same way local ones do.
+
+**GHOST REPORT (Start Menu)**: find out how your ghost is doing out there.
+Shows the map it's waiting on, how many trainers have found it, and its
+win/loss record:
+
+> Your ghost on ROUTE_1 has been found by 7 trainer(s)!
+> It won 4 and lost 3.
+
+- An **encounter** is counted the moment a battle actually starts (the
+  ghost has spotted someone and they can no longer walk away) — not every
+  time someone wanders past.
+- A **win** is your ghost beating them. **Losses** are everything else —
+  they beat your ghost, ran, or quit mid-battle.
+- **The tally resets every time you send a new ghost.** It belongs to the
+  ghost that's currently out, not to you forever, so a fresh send always
+  starts at zero.
+
+Requires ONLINE MODE (a local-only ghost has nothing to report). Only
+downloaded ghosts report battles — fighting your own ghost from another
+save on the same machine doesn't count.
 
 **Password (private pools)**: at SEND GHOST time, after the dialogue
 prompts, you're asked *"Set an online password?"* (default **NO**, keeps

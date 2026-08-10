@@ -755,6 +755,7 @@ return function(mod)
 
   local pendingUpload  -- { jobId = ... } or nil
   local pendingNearby   -- { jobId = ..., forMapId = ... } or nil
+  local pendingStats    -- jobId, for the Start Menu's GHOST REPORT entry
 
   -- Tell the PLAYER when an upload didn't work, not just the log file.
   -- Until v0.9.5 only SUCCESS surfaced in game ("Ghost uploaded online!") --
@@ -824,6 +825,57 @@ return function(mod)
       log("online upload failed to start: %s", tostring(jobId))
       notifyUploadProblem(game, "Upload failed to\nstart.", jobId)
     end
+  end
+
+  -- =====================================================================
+  -- Battle reporting: tell the server when someone fights a DOWNLOADED
+  -- ghost, so its sender can see how it's doing (see the Start Menu's
+  -- GHOST REPORT entry). Only two events are ever sent -- "encounter" and
+  -- "win" -- because losses are derived server-side as encounters minus
+  -- wins, so a fled or abandoned battle counts as a loss without needing a
+  -- report that a crashed/quit client could never have delivered anyway.
+  --
+  -- Local shared-file ghosts are skipped entirely: they have no server row
+  -- (rec.sourceOrigin is the tell -- only a downloaded ghost carries it).
+  --
+  -- These are queued rather than fired directly because Fetch is polled
+  -- one job at a time here and an encounter can easily land while an
+  -- upload or a nearby fetch is still in flight; dropping the report on
+  -- the floor in that case would silently undercount.
+  local reportQueue = {}
+  local pendingReport
+
+  local function queueOnlineReport(rec, event)
+    if not (ONLINE_AVAILABLE and onlineModeOn()) then return end
+    local ghostId = rec and rec.sourceOrigin
+    if type(ghostId) ~= "string" or ghostId == "" then return end  -- local ghost, nothing to report to
+    local ok, url = pcall(function()
+      return string.format("%s/report?id=%s&event=%s",
+        ONLINE_SERVER_URL, urlEncodeComponent(ghostId), urlEncodeComponent(event))
+    end)
+    if ok and url then
+      reportQueue[#reportQueue + 1] = url
+      log("queued '%s' report for online ghost '%s'", event, ghostId)
+    end
+  end
+
+  -- Start Menu -> GHOST REPORT. Asks the server how the ghost THIS save
+  -- currently has out there is doing. Async like everything else here, so
+  -- the caller shows a "checking" beat and pollOnlineJobs pushes the real
+  -- answer when it lands.
+  local function startGhostReportFetch(game)
+    if pendingStats then return false end
+    local ok, jobId = pcall(function()
+      local url = string.format("%s/stats?id=%s",
+        ONLINE_SERVER_URL, urlEncodeComponent(saveOriginId(game)))
+      return Fetch.get(url, { maxSeconds = 15 })
+    end)
+    if ok and jobId then
+      pendingStats = jobId
+      return true
+    end
+    log("ghost report fetch failed to start: %s", tostring(jobId))
+    return false
   end
 
   local function startOnlineNearbyFetch(game, mapId)
@@ -923,6 +975,58 @@ return function(mod)
   -- (a single request each), so simple sequential polling is enough -- no
   -- need for a job queue.
   local function pollOnlineJobs(game)
+    -- Reports are fire-and-forget: nothing in game depends on the result,
+    -- so a failure is logged and dropped rather than retried. One at a
+    -- time, drained in order, so a burst of encounters can't spawn a
+    -- thread per report.
+    if pendingReport then
+      local ok, result = pcall(Fetch.poll, pendingReport)
+      if ok and result and result.status ~= "pending" then
+        if result.status ~= "ok" then
+          log("online report failed (dropped): %s", tostring(result.err))
+        end
+        pcall(Fetch.release, pendingReport)
+        pendingReport = nil
+      end
+    end
+    if not pendingReport and #reportQueue > 0 then
+      local url = table.remove(reportQueue, 1)
+      local ok, jobId = pcall(function() return Fetch.get(url, { maxSeconds = 15 }) end)
+      if ok and jobId then pendingReport = jobId end
+    end
+
+    if pendingStats then
+      local ok, result = pcall(Fetch.poll, pendingStats)
+      if ok and result and result.status ~= "pending" then
+        pcall(Fetch.release, pendingStats)
+        pendingStats = nil
+        local msg
+        if result.status == "ok" then
+          local decoded = select(2, pcall(Json.decode, result.body))
+          if type(decoded) ~= "table" or not decoded.ok then
+            msg = "Couldn't read the\nreport."
+          elseif not decoded.found then
+            msg = "You have no ghost\nout there right now.\fSend one from a\nroute or dungeon!"
+          else
+            local enc = tonumber(decoded.encounters) or 0
+            local won = tonumber(decoded.wins) or 0
+            local lost = tonumber(decoded.losses) or 0
+            if enc == 0 then
+              msg = ("Your ghost waits on\n%s.\fNobody has found it\nyet."):format(tostring(decoded.mapId or "?"))
+            else
+              msg = ("Your ghost on %s\nhas been found by\n%d trainer(s)!"):format(
+                tostring(decoded.mapId or "?"), enc)
+              msg = msg .. ("\fIt won %d\nand lost %d."):format(won, lost)
+            end
+          end
+        else
+          log("ghost report fetch failed: %s", tostring(result.err))
+          msg = "Couldn't reach the\nnetwork."
+        end
+        pcall(function() game.stack:push(TextBox.new(game, msg)) end)
+      end
+    end
+
     if pendingUpload then
       local ok, result = pcall(Fetch.poll, pendingUpload.jobId)
       if ok and result and result.status ~= "pending" then
@@ -1104,6 +1208,12 @@ return function(mod)
   local sightCooldown = {}   -- npcName -> seconds remaining before the next check
   local sightAlerted = {}    -- npcName -> true while its approach+battle script is (believed) in flight
   local sightFacing = {}     -- npcName -> fixed lowercase direction, captured once
+  -- rec.id -> true between "we committed to a battle THIS session" and the
+  -- win landing. Gated on this session rather than just reading the defeat
+  -- flag, because a ghost beaten in an EARLIER session already has that
+  -- flag set on load -- without this we'd re-report a win every time the
+  -- player walked past an old, already-beaten ghost.
+  local awaitingResult = {}
 
   local function sightStep(game, w, mapId, entry, cur, dt)
     local rec = entry.rec
@@ -1166,6 +1276,12 @@ return function(mod)
     if pok and qok then
       sightAlerted[name] = true
       log("ghost '%s' spotted the player (sight) -- scripted walk-up + battle queued", rec.name or "?")
+      -- The battle is now committed (the script owns the stack and the
+      -- player can't walk away), so this is the honest moment to call it an
+      -- encounter -- reporting on the sight CHECK instead would count every
+      -- time the ray happened to line up. No-op for a local ghost.
+      queueOnlineReport(rec, "encounter")
+      awaitingResult[rec.id] = true
     else
       log("sight-triggered script refused (%s) -- will retry next time in sight", tostring(qerr))
     end
@@ -1200,6 +1316,14 @@ return function(mod)
     for _, entry in ipairs(list) do
       if not isDefeated(game, entry.rec) then
         sightStep(game, w, cur.mapId, entry, cur, dt or 0)
+      elseif awaitingResult[entry.rec.id] then
+        -- Beaten, and we're the ones who saw the battle start this session:
+        -- the defeat flag flipping IS the win signal (battleSequenceRows
+        -- only set_flags on an actual win -- a loss or a flee skips it via
+        -- jump_if_false). Cleared immediately so a win reports exactly once
+        -- no matter how many ticks pass before the player leaves the map.
+        awaitingResult[entry.rec.id] = nil
+        queueOnlineReport(entry.rec, "win")
       end
     end
 
@@ -1374,6 +1498,30 @@ return function(mod)
     }))
   end
 
+  -- Start Menu -> GHOST REPORT. Deliberately a menu entry rather than an
+  -- item (no inventory space to spare), an NPC (nothing to walk to, and
+  -- runtime talk registration doesn't work in this engine) or a mod option
+  -- (mod.options has no way to DISPLAY text at all -- toggles and numbers
+  -- only). It sits next to SEND GHOST, which is the action that creates the
+  -- thing being reported on, so it needs no explaining.
+  local function showGhostReport(game)
+    if not ONLINE_AVAILABLE then
+      game.stack:push(TextBox.new(game, "Online features\naren't available\nin this build."))
+      return
+    end
+    if not onlineModeOn() then
+      game.stack:push(TextBox.new(game, "ONLINE MODE is off.\fTurn it on in the\nmod options to track\nyour ghost."))
+      return
+    end
+    if not startGhostReportFetch(game) then
+      game.stack:push(TextBox.new(game, "Already checking...\nwait a moment."))
+      return
+    end
+    -- The answer arrives asynchronously (see pollOnlineJobs); this is the
+    -- "something is happening" beat so the menu doesn't look inert.
+    game.stack:push(TextBox.new(game, "Checking the\nnetwork..."))
+  end
+
   -- ChoiceBox renders only a YES/NO selector, no text of its own (confirmed
   -- from source) -- it's always paired with a preceding TextBox for the
   -- question, same as vrm_pokemon_bank's own RELEASE confirmation does.
@@ -1435,17 +1583,19 @@ return function(mod)
   mod.hooks:wrap("ui.start_menu.items", function(next_, game, items)
     local out = next_(game, items)
     if type(out) ~= "table" then return out end
-    local sendRow = { label = "SEND GHOST", onSelect = function() sendSelf(game) end }
-    local pwRow   = { label = "ONLINE PASSWORD", onSelect = function() setOnlinePassword(game) end }
+    local rows = {
+      { label = "SEND GHOST",      onSelect = function() sendSelf(game) end },
+      { label = "GHOST REPORT",    onSelect = function() showGhostReport(game) end },
+      { label = "ONLINE PASSWORD", onSelect = function() setOnlinePassword(game) end },
+    }
     if mod.ui and mod.ui.insertBefore then
-      local inserted = mod.ui.insertBefore(out, "EXIT", sendRow)
-      if type(inserted) == "table" then out = inserted end
-      inserted = mod.ui.insertBefore(out, "EXIT", pwRow)
-      if type(inserted) == "table" then return inserted end
+      for _, row in ipairs(rows) do
+        local inserted = mod.ui.insertBefore(out, "EXIT", row)
+        if type(inserted) == "table" then out = inserted end
+      end
       return out
     end
-    out[#out + 1] = sendRow
-    out[#out + 1] = pwRow
+    for _, row in ipairs(rows) do out[#out + 1] = row end
     return out
   end)
 
@@ -1485,5 +1635,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.9.5)")
+  log("loaded (v0.10.0)")
 end
