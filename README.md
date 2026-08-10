@@ -1,4 +1,4 @@
-# Silph Scope Network (test build 0.11.0)
+# Silph Scope Network (test build 0.12.0)
 -- Created with AI/Vibe Coding--
 
 Send your current character to another save as enemy trainer you can fight!
@@ -107,8 +107,9 @@ win/loss record:
 - An **encounter** is counted the moment a battle actually starts (the
   ghost has spotted someone and they can no longer walk away) — not every
   time someone wanders past.
-- A **win** is your ghost beating them. **Losses** are everything else —
-  they beat your ghost, ran, or quit mid-battle.
+- A **loss** means someone actually **beat** your ghost. A **win** is
+  everything else — they lost, they ran, or they quit mid-battle. Walking
+  out on a fight concedes it to your ghost.
 - **The tally resets every time you send a new ghost.** It belongs to the
   ghost that's currently out, not to you forever, so a fresh send always
   starts at zero.

@@ -1045,10 +1045,10 @@ return function(mod)
   -- perspective, like a real trainer's record -- the challenger defeating
   -- the ghost is a LOSS for the ghost, and the challenger losing or
   -- fleeing is a WIN for the ghost. Only two events are ever sent --
-  -- "encounter" and "win" -- because losses are derived server-side as
-  -- encounters minus wins, so an abandoned/crashed battle (no result ever
-  -- known) falls into the derived-loss bucket without needing a report
-  -- that a crashed/quit client could never have delivered anyway.
+  -- "encounter" and "loss" -- because WINS are derived server-side as
+  -- encounters minus losses. So an abandoned or crashed battle, which a
+  -- quit client could never have reported anyway, lands in the derived-WIN
+  -- bucket: walking out on a fight concedes it to the ghost.
   --
   -- Local shared-file ghosts are skipped entirely: they have no server row
   -- (rec.sourceOrigin is the tell -- only a downloaded ghost carries it).
@@ -1463,25 +1463,28 @@ return function(mod)
   -- interact both commit a battle the same way, via awaitingResult, so both
   -- get resolved here the same way too). Once a battle we started is no
   -- longer actually running, the ghost's own current defeat state tells us
-  -- the outcome: still undefeated = the challenger lost/fled = a WIN for
-  -- the ghost (reported); defeated = the challenger won = a LOSS for the
-  -- ghost (derived server-side as encounters - wins, nothing to send). See
-  -- queueOnlineReport's header comment for the win/loss-from-the-ghost's-
-  -- perspective framing.
+  -- the outcome.
   --
-  -- CRITICAL (fixed 0.10.6): this deliberately iterates awaitingResult
-  -- ITSELF rather than being called per-ghost from ghostStep's current-map
-  -- loop, and runs before that loop's `list` early-out. The old per-map
-  -- version made the WIN case structurally unreachable: a ghost only ever
-  -- "wins" when the CHALLENGER loses, and losing warps the player to their
-  -- last heal point (OverworldState:afterBattle -> warpToHealPoint,
-  -- confirmed from engine source) -- a DIFFERENT MAP. By the next tick
-  -- ghostStep had already despawned/rebuilt for that new map, so the ghost
-  -- we'd just fought was never in `list`, its pending result was never
-  -- looked at, and the win went unreported every single time (confirmed
-  -- live: a server row with encounters=2, wins=0 after two real fights).
-  -- isDefeated() reads the engine's save Flags, which are save-global and
-  -- map-independent, so resolving off-map is perfectly accurate.
+  -- Only a LOSS is ever reported (0.12.0). The server derives wins as
+  -- encounters - losses, so anything we DON'T report -- including a battle
+  -- the player quit out of -- counts as a win for the ghost. That's
+  -- deliberate: walking out on a fight is conceding it, and the old scheme
+  -- (report wins, derive losses) charged the ghost a loss every time a
+  -- player rage-quit or crashed.
+  --
+  -- It also removes the fragile case entirely. A ghost only LOSES when the
+  -- challenger wins, and that is precisely the outcome where the player is
+  -- NOT warped away (losing sends them to their last heal point via
+  -- OverworldState:afterBattle -> warpToHealPoint, confirmed from engine
+  -- source). So the one report we must actually deliver now happens with
+  -- the player standing still on the ghost's own map, instead of racing a
+  -- map transition.
+  --
+  -- Still iterates awaitingResult ITSELF rather than being driven from
+  -- ghostStep's current-map loop, and still runs before that loop's `list`
+  -- early-out -- isDefeated() reads the engine's save Flags, which are
+  -- save-global and map-independent, so this stays correct no matter where
+  -- the player ends up.
   local function resolvePendingResults(game)
     if next(awaitingResult) == nil then return end
     if scriptRunning() then return end  -- still in flight, check again later
@@ -1491,10 +1494,10 @@ return function(mod)
     for id, rec in pairs(awaitingResult) do
       awaitingResult[id] = nil
       if isDefeated(game, rec) then
-        log("ghost '%s' was beaten -- counts as its LOSS (derived server-side, nothing sent)",
-          tostring(rec.name or "?"))
+        queueOnlineReport(rec, "loss")
       else
-        queueOnlineReport(rec, "win")
+        log("ghost '%s' survived -- counts as its WIN (derived server-side, nothing sent)",
+          tostring(rec.name or "?"))
       end
     end
   end
@@ -1980,5 +1983,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.11.0)")
+  log("loaded (v0.12.0)")
 end
