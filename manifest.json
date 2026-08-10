@@ -1,7 +1,7 @@
 {
   "id": "silphscope_network",
   "name": "SilphScope-Network",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -16,5 +16,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "conflicts": [],
-  "description": "Send your current character (map position + party, plus a choice of 6 ghost sprites) to a shared file that lives outside any save (or, with experimental ONLINE MODE, to a small server too, optionally password-gated to a private pool). Other saves find your sent character standing where you left them: it spots you and forces a battle, with optional dialogue you wrote. Once beaten, interact with it to hear its after-battle line again (or fight again if repeatable battles are on). Test build."
+  "description": "Send your current character (map position + party, plus a choice of 45 trainer looks -- every class, gym leader, Elite Four member, rival stage and Prof. Oak) to a shared file that lives outside any save (or, with experimental ONLINE MODE, to a small server too, optionally password-gated to a private pool). Other saves find your sent character standing where you left them: it spots you and forces a battle, or you can walk up and interact with it yourself, with optional dialogue you wrote. Once beaten, interact with it to hear its after-battle line again (or fight again if repeatable battles are on). Test build."
 }

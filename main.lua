@@ -41,37 +41,159 @@ local NPC_NAME_PREFIX = "SSN_NPC_"
 local PLAYER_PIC    = "assets/generated/trainer_card/red.png"
 local PLAYER_SPRITE = "SPRITE_RED"        -- overworld sprite for the ghost NPC
 
--- Selectable ghost sprites (main.lua's GHOST SPRITE toggles below pick one of
--- these by option key; PLAYER_PIC/PLAYER_SPRITE above are the fallback when
--- none is toggled on). Each has real matching front art under
--- assets/generated/battle/trainers/, confirmed against trainers.lua's own
--- `pic` field for the equivalent vanilla trainer class -- same sprite/pic
--- pairing style used for every other trainer in this engine's own data.
+-- Selectable ghost sprites, picked via the GHOST SPRITE mod option (a
+-- type="choice" dropdown -- see mod.options:define below); PLAYER_PIC/
+-- PLAYER_SPRITE above are the fallback ("RED (DEFAULT)" is itself the first
+-- choice).
+--
+-- COMPLETE as of v0.11.0: all 45 trainer battle portraits this game ships
+-- (assets/generated/battle/trainers/*.png) -- every regular class, all 8 gym
+-- leaders, the Elite Four, all three rival stages and Prof. Oak.
+--
+-- Each overworld<->battle-art pairing is GROUND TRUTH extracted from the
+-- game's own map data, not inferred from name similarity: every object in
+-- red/data/generated/maps.lua that carries BOTH a `sprite` and a
+-- `trainerClass` was tallied, giving the sprite the real game actually uses
+-- to represent each class in the overworld, then joined to that class's own
+-- `pic` field in red/data/generated/trainers.lua. That mattered -- two
+-- earlier name-based guesses were flat WRONG: OPP_BIRD_KEEPER walks around
+-- as SPRITE_COOLTRAINER_M (15/15 placements), NOT "SPRITE_BIRD" (which is a
+-- bird POKEMON, not a trainer), and OPP_LASS is SPRITE_COOLTRAINER_F
+-- (18/18), NOT SPRITE_GIRL (that one is Sabrina). Both are fixed here.
+--
+-- Consequences of using real data, both intentional:
+--   * MANY classes share one overworld sprite (Gen 1 has ~45 portraits but
+--     only ~28 humanoid walker sprites) -- e.g. SPRITE_SUPER_NERD covers
+--     Super Nerd, Pokemaniac, Burglar, Engineer, Rocker AND Brock. So the
+--     sprite alone can no longer identify a look; see SPRITE_PAIR_OK below,
+--     which is why validation moved to matching the (sprite, pic) PAIR.
+--   * Where the data showed a class split across two sprites (Beauty is 7x
+--     SPRITE_BEAUTY / 7x SPRITE_SWIMMER, Cue Ball 8x BIKER / 1x SWIMMER),
+--     the most-used one wins -- the minority placements are the game
+--     reusing a class for a themed area (swimming Beauties on the water
+--     routes), not a different look for the class itself.
+--
+-- Every sprite listed here was checked to exist in sprites.lua AND have
+-- `walker = true` -- a non-walker (3-frame) sprite would look broken during
+-- GHOST SIGHT's move_npc_to walk-up. `gender` ("M"/"F") is shown in the
+-- label so the dropdown reads as a gendered list.
+local PIC_DIR = "assets/generated/battle/trainers/"
 local GHOST_SPRITES = {
-  { key = "sprite_biker",        label = "GHOST SPRITE: BIKER",
-    sprite = "SPRITE_BIKER",        pic = "assets/generated/battle/trainers/biker.png" },
-  { key = "sprite_cooltrainerm",  label = "GHOST SPRITE: COOLTRAINER (M)",
-    sprite = "SPRITE_COOLTRAINER_M", pic = "assets/generated/battle/trainers/cooltrainerm.png" },
-  { key = "sprite_hiker",         label = "GHOST SPRITE: HIKER",
-    sprite = "SPRITE_HIKER",        pic = "assets/generated/battle/trainers/hiker.png" },
-  { key = "sprite_beauty",        label = "GHOST SPRITE: BEAUTY",
-    sprite = "SPRITE_BEAUTY",       pic = "assets/generated/battle/trainers/beauty.png" },
-  { key = "sprite_cooltrainerf",  label = "GHOST SPRITE: COOLTRAINER (F)",
-    sprite = "SPRITE_COOLTRAINER_F", pic = "assets/generated/battle/trainers/cooltrainerf.png" },
-  { key = "sprite_channeler",     label = "GHOST SPRITE: CHANNELER",
-    sprite = "SPRITE_CHANNELER",    pic = "assets/generated/battle/trainers/channeler.png" },
+  -- ---- Trainer classes, male --------------------------------------------
+  { key = "sprite_bugcatcher",   gender = "M", label = "BUG CATCHER (M)",
+    sprite = "SPRITE_YOUNGSTER",     pic = PIC_DIR .. "bugcatcher.png" },
+  { key = "sprite_youngster",    gender = "M", label = "YOUNGSTER (M)",
+    sprite = "SPRITE_YOUNGSTER",     pic = PIC_DIR .. "youngster.png" },
+  { key = "sprite_jrtrainerm",   gender = "M", label = "JR.TRAINER (M)",
+    sprite = "SPRITE_COOLTRAINER_M", pic = PIC_DIR .. "jr.trainerm.png" },
+  { key = "sprite_cooltrainerm", gender = "M", label = "COOLTRAINER (M)",
+    sprite = "SPRITE_COOLTRAINER_M", pic = PIC_DIR .. "cooltrainerm.png" },
+  { key = "sprite_birdkeeper",   gender = "M", label = "BIRD KEEPER (M)",
+    sprite = "SPRITE_COOLTRAINER_M", pic = PIC_DIR .. "birdkeeper.png" },
+  { key = "sprite_hiker",        gender = "M", label = "HIKER (M)",
+    sprite = "SPRITE_HIKER",         pic = PIC_DIR .. "hiker.png" },
+  { key = "sprite_blackbelt",    gender = "M", label = "BLACKBELT (M)",
+    sprite = "SPRITE_HIKER",         pic = PIC_DIR .. "blackbelt.png" },
+  { key = "sprite_biker",        gender = "M", label = "BIKER (M)",
+    sprite = "SPRITE_BIKER",         pic = PIC_DIR .. "biker.png" },
+  { key = "sprite_cueball",      gender = "M", label = "CUE BALL (M)",
+    sprite = "SPRITE_BIKER",         pic = PIC_DIR .. "cueball.png" },
+  { key = "sprite_supernerd",    gender = "M", label = "SUPER NERD (M)",
+    sprite = "SPRITE_SUPER_NERD",    pic = PIC_DIR .. "supernerd.png" },
+  { key = "sprite_pokemaniac",   gender = "M", label = "POKEMANIAC (M)",
+    sprite = "SPRITE_SUPER_NERD",    pic = PIC_DIR .. "pokemaniac.png" },
+  { key = "sprite_burglar",      gender = "M", label = "BURGLAR (M)",
+    sprite = "SPRITE_SUPER_NERD",    pic = PIC_DIR .. "burglar.png" },
+  { key = "sprite_engineer",     gender = "M", label = "ENGINEER (M)",
+    sprite = "SPRITE_SUPER_NERD",    pic = PIC_DIR .. "engineer.png" },
+  { key = "sprite_rocker",       gender = "M", label = "ROCKER (M)",
+    sprite = "SPRITE_SUPER_NERD",    pic = PIC_DIR .. "rocker.png" },
+  { key = "sprite_juggler",      gender = "M", label = "JUGGLER (M)",
+    sprite = "SPRITE_ROCKER",        pic = PIC_DIR .. "juggler.png" },
+  { key = "sprite_tamer",        gender = "M", label = "TAMER (M)",
+    sprite = "SPRITE_ROCKER",        pic = PIC_DIR .. "tamer.png" },
+  { key = "sprite_psychic",      gender = "M", label = "PSYCHIC (M)",
+    sprite = "SPRITE_YOUNGSTER",     pic = PIC_DIR .. "psychic.png" },
+  { key = "sprite_fisherman",    gender = "M", label = "FISHERMAN (M)",
+    sprite = "SPRITE_FISHER",        pic = PIC_DIR .. "fisher.png" },
+  { key = "sprite_swimmer",      gender = "M", label = "SWIMMER (M)",
+    sprite = "SPRITE_SWIMMER",       pic = PIC_DIR .. "swimmer.png" },
+  { key = "sprite_sailor",       gender = "M", label = "SAILOR (M)",
+    sprite = "SPRITE_SAILOR",        pic = PIC_DIR .. "sailor.png" },
+  { key = "sprite_gambler",      gender = "M", label = "GAMBLER (M)",
+    sprite = "SPRITE_GAMBLER",       pic = PIC_DIR .. "gambler.png" },
+  { key = "sprite_gentleman",    gender = "M", label = "GENTLEMAN (M)",
+    sprite = "SPRITE_GENTLEMAN",     pic = PIC_DIR .. "gentleman.png" },
+  { key = "sprite_scientist",    gender = "M", label = "SCIENTIST (M)",
+    sprite = "SPRITE_SCIENTIST",     pic = PIC_DIR .. "scientist.png" },
+  { key = "sprite_rocket",       gender = "M", label = "ROCKET GRUNT (M)",
+    sprite = "SPRITE_ROCKET",        pic = PIC_DIR .. "rocket.png" },
+  -- ---- Trainer classes, female ------------------------------------------
+  { key = "sprite_lass",         gender = "F", label = "LASS (F)",
+    sprite = "SPRITE_COOLTRAINER_F", pic = PIC_DIR .. "lass.png" },
+  { key = "sprite_jrtrainerf",   gender = "F", label = "JR.TRAINER (F)",
+    sprite = "SPRITE_COOLTRAINER_F", pic = PIC_DIR .. "jr.trainerf.png" },
+  { key = "sprite_cooltrainerf", gender = "F", label = "COOLTRAINER (F)",
+    sprite = "SPRITE_COOLTRAINER_F", pic = PIC_DIR .. "cooltrainerf.png" },
+  { key = "sprite_beauty",       gender = "F", label = "BEAUTY (F)",
+    sprite = "SPRITE_BEAUTY",        pic = PIC_DIR .. "beauty.png" },
+  { key = "sprite_channeler",    gender = "F", label = "CHANNELER (F)",
+    sprite = "SPRITE_CHANNELER",     pic = PIC_DIR .. "channeler.png" },
+  -- ---- Gym leaders (badge order) ----------------------------------------
+  { key = "sprite_brock",        gender = "M", label = "BROCK (M)",
+    sprite = "SPRITE_SUPER_NERD",    pic = PIC_DIR .. "brock.png" },
+  { key = "sprite_misty",        gender = "F", label = "MISTY (F)",
+    sprite = "SPRITE_BRUNETTE_GIRL", pic = PIC_DIR .. "misty.png" },
+  { key = "sprite_ltsurge",      gender = "M", label = "LT. SURGE (M)",
+    sprite = "SPRITE_ROCKER",        pic = PIC_DIR .. "lt.surge.png" },
+  { key = "sprite_erika",        gender = "F", label = "ERIKA (F)",
+    sprite = "SPRITE_SILPH_WORKER_F", pic = PIC_DIR .. "erika.png" },
+  { key = "sprite_koga",         gender = "M", label = "KOGA (M)",
+    sprite = "SPRITE_KOGA",          pic = PIC_DIR .. "koga.png" },
+  { key = "sprite_sabrina",      gender = "F", label = "SABRINA (F)",
+    sprite = "SPRITE_GIRL",          pic = PIC_DIR .. "sabrina.png" },
+  { key = "sprite_blaine",       gender = "M", label = "BLAINE (M)",
+    sprite = "SPRITE_MIDDLE_AGED_MAN", pic = PIC_DIR .. "blaine.png" },
+  { key = "sprite_giovanni",     gender = "M", label = "GIOVANNI (M)",
+    sprite = "SPRITE_GIOVANNI",      pic = PIC_DIR .. "giovanni.png" },
+  -- ---- Elite Four -------------------------------------------------------
+  { key = "sprite_lorelei",      gender = "F", label = "LORELEI (F)",
+    sprite = "SPRITE_LORELEI",       pic = PIC_DIR .. "lorelei.png" },
+  { key = "sprite_bruno",        gender = "M", label = "BRUNO (M)",
+    sprite = "SPRITE_BRUNO",         pic = PIC_DIR .. "bruno.png" },
+  { key = "sprite_agatha",       gender = "F", label = "AGATHA (F)",
+    sprite = "SPRITE_AGATHA",        pic = PIC_DIR .. "agatha.png" },
+  { key = "sprite_lance",        gender = "M", label = "LANCE (M)",
+    sprite = "SPRITE_LANCE",         pic = PIC_DIR .. "lance.png" },
+  -- ---- Rival (all three battle arts) + Oak -------------------------------
+  { key = "sprite_rival1",       gender = "M", label = "RIVAL - EARLY (M)",
+    sprite = "SPRITE_BLUE",          pic = PIC_DIR .. "rival1.png" },
+  { key = "sprite_rival2",       gender = "M", label = "RIVAL - MID (M)",
+    sprite = "SPRITE_BLUE",          pic = PIC_DIR .. "rival2.png" },
+  { key = "sprite_rival3",       gender = "M", label = "RIVAL - CHAMP (M)",
+    sprite = "SPRITE_BLUE",          pic = PIC_DIR .. "rival3.png" },
+  { key = "sprite_profoak",      gender = "M", label = "PROF. OAK (M)",
+    sprite = "SPRITE_OAK",           pic = PIC_DIR .. "prof.oak.png" },
 }
 
--- sprite name -> its OWN pic, used to validate a DOWNLOADED ghost's look.
--- A downloaded ghost's sprite/pic arrive as arbitrary strings from another
--- player's client, so they are never trusted directly: the sprite name is
--- looked up here and the pic is taken from OUR copy, never from the wire.
--- Without this, a malformed/hostile value reaches spawnNpc as an unknown
--- sprite (ghost silently fails to spawn) or the battle renderer as an
--- arbitrary asset path (crashes into lua-error.log, which a mod can't even
--- see). Anything not in this table falls back to the Red default.
-local SPRITE_BY_NAME = {}
-for _, s in ipairs(GHOST_SPRITES) do SPRITE_BY_NAME[s.sprite] = s.pic end
+-- Valid (sprite, pic) COMBINATIONS, used to validate a DOWNLOADED ghost's
+-- look. A downloaded ghost's sprite/pic arrive as arbitrary strings from
+-- another player's client and are never trusted: a pair is only honoured if
+-- it exactly matches one this table itself defines. Without that check, a
+-- malformed/hostile value reaches spawnNpc as an unknown sprite (ghost
+-- silently fails to spawn) or the battle renderer as an arbitrary asset path
+-- (which crashes to lua-error.log, a file a mod cannot even read). Anything
+-- unrecognised falls back to the Red default.
+--
+-- This replaced a plain sprite -> pic lookup in v0.11.0, and HAD to: with
+-- the full 45-portrait roster many classes legitimately share one overworld
+-- sprite (SPRITE_SUPER_NERD alone backs six of them), so keying on the
+-- sprite name would collapse them and hand every Super Nerd-sprited ghost
+-- whichever pic happened to be defined last. Matching the pair keeps the
+-- exact look the sender chose while giving the same safety guarantee, since
+-- both halves still have to be strings we ship ourselves.
+local SPRITE_PAIR_OK = {}
+for _, s in ipairs(GHOST_SPRITES) do SPRITE_PAIR_OK[s.sprite .. "|" .. s.pic] = true end
 
 -- Optional before/after-battle dialogue, authored by the SENDING player at
 -- SEND GHOST time (see sendSelf). Comparable to a normal NPC's line length --
@@ -203,21 +325,22 @@ return function(mod)
   -- "number"` (with min/max/step) DOES work in this engine -- ONLINE GHOST
   -- COUNT rendered and worked fine, it just took the others down with it as
   -- a side effect of the two-call split, not because the type was rejected.
-  -- GHOST SPRITE: mod.options has no confirmed picker/dropdown type (only
-  -- "toggle" and "number" are confirmed working -- see the numeric-type note
-  -- below), so a choice of 6 sprites is modeled as 6 mutually-exclusive
-  -- toggles, each self-labeled with the sprite name, rather than an
-  -- unlabeled numeric index the player would need a legend to decode. Built
-  -- from GHOST_SPRITES so the option list and the lookup table can't drift
-  -- apart. Resolution (see selectedSprite below): first toggle found ON
-  -- wins, in GHOST_SPRITES order; none on falls back to PLAYER_SPRITE/
-  -- PLAYER_PIC (today's default, Red).
-  local function ghostSpriteOptionRows()
-    local rows = {}
+  -- GHOST SPRITE: mod.options DOES support a type="choice" dropdown
+  -- (choices = {{label,value}, ...}, cycled in place with left/right, no
+  -- separate menu to open) -- confirmed from the engine's own bundled
+  -- example_dexnav mod (mods/examples/example_dexnav/main.lua:
+  -- `mod.options:define({{key="sort", type="choice", choices={{"DEX NO.",
+  -- "dex"},{"NAME","name"}}}})`). This corrects an earlier belief in this
+  -- project that only toggle/number worked (which is why GHOST SPRITE was
+  -- modeled as 6 mutually-exclusive toggles, then briefly a dedicated
+  -- ListMenu Start Menu screen, before landing here as the lighter-weight
+  -- choice). "" (RED (DEFAULT)) is always the first choice.
+  local function ghostSpriteChoices()
+    local choices = { { "RED (DEFAULT)", "" } }
     for _, s in ipairs(GHOST_SPRITES) do
-      rows[#rows + 1] = { key = s.key, label = s.label, type = "toggle", default = false }
+      choices[#choices + 1] = { s.label, s.key }
     end
-    return rows
+    return choices
   end
 
   local ONLINE_COUNT_SUPPORTED = pcall(function()
@@ -249,8 +372,12 @@ return function(mod)
       -- above -- type="number" IS confirmed working in this engine.
       { key = "online_ghost_count", label = "ONLINE GHOST COUNT", type = "number",
         min = 1, max = 5, step = 1, default = ONLINE_DEFAULT_COUNT },
+      -- Which overworld sprite + battle art your NEXT sent ghost uses.
+      -- Read fresh at SEND GHOST time (see selectedSprite below), so
+      -- changing this before a send takes effect immediately.
+      { key = "ghost_sprite", label = "GHOST SPRITE", type = "choice",
+        default = "", choices = ghostSpriteChoices() },
     }
-    for _, row in ipairs(ghostSpriteOptionRows()) do rows[#rows + 1] = row end
     mod.options:define(rows)
   end)
   if not ONLINE_COUNT_SUPPORTED then
@@ -268,14 +395,17 @@ return function(mod)
     end)
   end
 
-  -- First GHOST_SPRITES entry with its toggle on wins; none on -> the
-  -- PLAYER_SPRITE/PLAYER_PIC default (Red). Read fresh at SEND GHOST time
-  -- (not cached), so flipping the option before a send takes effect
-  -- immediately, same as every other option this mod has.
+  -- Read fresh every time (not cached), so a choice made in the options menu
+  -- is honored by the very next SEND GHOST with no reload needed. Falls back
+  -- to PLAYER_SPRITE/PLAYER_PIC (Red) for "" (the default) or any value that
+  -- doesn't match a known key (e.g. the fallback options registration above
+  -- never defined "ghost_sprite" at all).
   local function selectedSprite()
-    for _, s in ipairs(GHOST_SPRITES) do
-      local ok, on = pcall(function() return mod.options:get(s.key) end)
-      if ok and on == true then return s.sprite, s.pic end
+    local ok, key = pcall(function() return mod.options:get("ghost_sprite") end)
+    if ok and type(key) == "string" and key ~= "" then
+      for _, s in ipairs(GHOST_SPRITES) do
+        if s.key == key then return s.sprite, s.pic end
+      end
     end
     return PLAYER_SPRITE, PLAYER_PIC
   end
@@ -476,6 +606,92 @@ return function(mod)
   -- character reloaded in the same slot -> same origin (correctly excluded).
   -- Different slot, even with a colliding trainer id -> different origin
   -- (correctly shown) -- this is what actually matches "any save FILE".
+  --
+  -- FALLBACK when activeSlot fails (rewritten 0.10.7 -- the old one was a
+  -- real bug, seen live on another player's client): it used to mint
+  -- "rg-fallback-<os.time()>" and stash it in game.save.modData, which point
+  -- 1 above already establishes does NOT reliably persist. A non-persisting
+  -- store plus a TIMESTAMP seed means a brand-new identity every session,
+  -- which is strictly worse than no fallback at all: every send creates an
+  -- ADDITIONAL server row instead of replacing that player's previous ghost
+  -- (breaking the one-ghost-per-save rule), and their GHOST REPORT queries
+  -- an origin no row has ever had, so it always answers "you have no ghost
+  -- out there" even seconds after a successful upload.
+  --
+  -- Fix: mint the token ONCE and persist it as a FLAG NAME in save.flags --
+  -- the one store this mod has proven reliably persists (it's how defeat
+  -- tracking already survives reloads). Flags only store booleans, so the
+  -- token is encoded into the NAME (ORIGIN_FLAG_PREFIX .. token) and
+  -- recovered by scanning save.flags for that prefix. Because save.flags
+  -- lives INSIDE the save file, this is naturally per-save-file with no
+  -- extra work -- two saves can't collide even if they share name+id, which
+  -- is exactly the property activeSlot was giving us.
+  --
+  -- Randomness comes from love.math.random (seeded from system entropy at
+  -- LOVE startup) rather than math.random: seeding the global Lua RNG in a
+  -- Pokemon game could perturb battle/encounter rolls, which is not a
+  -- tradeoff worth making for an id.
+  local ORIGIN_FLAG_PREFIX = "SSN_ORIGIN_"
+
+  local function mintOriginToken()
+    local n1, n2
+    local ok = pcall(function()
+      n1 = love.math.random(0, 0xFFFFFF)
+      n2 = love.math.random(0, 0xFFFFFF)
+    end)
+    if not (ok and n1 and n2) then
+      -- love.math missing (headless/test harness): fall back to the plain
+      -- RNG WITHOUT reseeding it, plus the clock for cross-run spread.
+      n1, n2 = math.random(0, 0xFFFFFF), math.random(0, 0xFFFFFF)
+    end
+    return string.format("%06x%06x%x", n1, n2, os.time and os.time() or 0)
+  end
+
+  -- saveOriginId is called often (every nearby fetch, every send, assorted
+  -- log lines), so memoise per save table -- weak keys so a save that goes
+  -- away doesn't pin this entry. Also matters for correctness in the
+  -- degraded no-flags-table case below: without the memo that path would
+  -- mint a DIFFERENT token (and log) on every single call, whereas this way
+  -- it at least stays stable for the session.
+  local fallbackTokenMemo = setmetatable({}, { __mode = "k" })
+
+  -- Returns the save's persistent fallback token, minting+storing one the
+  -- first time. Never returns nil: a save with no readable flags table still
+  -- gets a token, it just can't be persisted (and so reverts to old
+  -- per-session behaviour) -- logged so that case is diagnosable, not silent.
+  local function fallbackSlotToken(sv)
+    local memo = fallbackTokenMemo[sv]
+    if memo then return memo end
+    local flags = type(sv.flags) == "table" and sv.flags or nil
+    if flags then
+      for name, on in pairs(flags) do
+        if on == true and type(name) == "string" then
+          local token = name:match("^" .. ORIGIN_FLAG_PREFIX .. "(.+)$")
+          if token then
+            fallbackTokenMemo[sv] = token
+            return token
+          end
+        end
+      end
+    end
+    local token = mintOriginToken()
+    local stored = false
+    if flags then
+      stored = pcall(function() Flags.set(sv, ORIGIN_FLAG_PREFIX .. token) end)
+    end
+    fallbackTokenMemo[sv] = token
+    log("activeSlot unavailable -- minted fallback save identity '%s' (persisted=%s)",
+      token, tostring(stored))
+    if stored then
+      log("NOTE: that identity only sticks once the game itself is SAVED -- " ..
+        "sending a ghost without saving afterwards will mint a new one next session")
+    else
+      log("WARNING: could not write the identity flag -- this save will get a NEW " ..
+        "identity next session (duplicate ghosts, GHOST REPORT won't find its own)")
+    end
+    return token
+  end
+
   local function saveOriginId(game)
     local sv = game and game.save
     if not sv then return "unknown" end
@@ -487,15 +703,10 @@ return function(mod)
       local ok, result = pcall(function() return SaveData.activeSlot(sv.version) end)
       if ok then slot = result end
     end
-    if slot == nil then
-      -- Fallback so we never nil out: modData persistence is unconfirmed, but
-      -- better than nothing if activeSlot ever fails.
-      sv.modData = type(sv.modData) == "table" and sv.modData or {}
-      local md = sv.modData[MOD_ID]
-      if type(md) ~= "table" then md = {}; sv.modData[MOD_ID] = md end
-      if not md.originId then md.originId = string.format("rg-fallback-%s", tostring(os.time() or 0)) end
-      slot = md.originId
-    end
+    -- Only ever consulted when activeSlot genuinely fails -- a save where it
+    -- works keeps the exact origin string it already had, so existing ghosts
+    -- and defeat flags are untouched by this change.
+    if slot == nil then slot = fallbackSlotToken(sv) end
     return string.format("slot%s:%s#%s", tostring(slot), tostring(name or "?"), tostring(id or "?"))
   end
 
@@ -830,10 +1041,14 @@ return function(mod)
   -- =====================================================================
   -- Battle reporting: tell the server when someone fights a DOWNLOADED
   -- ghost, so its sender can see how it's doing (see the Start Menu's
-  -- GHOST REPORT entry). Only two events are ever sent -- "encounter" and
-  -- "win" -- because losses are derived server-side as encounters minus
-  -- wins, so a fled or abandoned battle counts as a loss without needing a
-  -- report that a crashed/quit client could never have delivered anyway.
+  -- GHOST REPORT entry). "win"/"loss" here are from the GHOST's own
+  -- perspective, like a real trainer's record -- the challenger defeating
+  -- the ghost is a LOSS for the ghost, and the challenger losing or
+  -- fleeing is a WIN for the ghost. Only two events are ever sent --
+  -- "encounter" and "win" -- because losses are derived server-side as
+  -- encounters minus wins, so an abandoned/crashed battle (no result ever
+  -- known) falls into the derived-loss bucket without needing a report
+  -- that a crashed/quit client could never have delivered anyway.
   --
   -- Local shared-file ghosts are skipped entirely: they have no server row
   -- (rec.sourceOrigin is the tell -- only a downloaded ghost carries it).
@@ -949,11 +1164,15 @@ return function(mod)
     local stamp = tonumber(serverGhost.uploadedAt)
     local uid = "online_" .. safeId
     if stamp then uid = uid .. "_" .. string.format("%.0f", stamp) end
-    -- Never trust the wire's sprite/pic (see SPRITE_BY_NAME): match the
-    -- sprite name against our own table and take the pic from our copy.
+    -- Never trust the wire's sprite/pic (see SPRITE_PAIR_OK): the pair is
+    -- honoured only if it exactly matches a combination we ship ourselves,
+    -- so neither half can be an arbitrary sprite id or asset path. Ghosts
+    -- uploaded before v0.11.0 with one of the two corrected pairings
+    -- (BIRD_KEEPER/LASS) no longer match and simply fall back to Red.
     local sprite, pic = PLAYER_SPRITE, PLAYER_PIC
-    if type(serverGhost.sprite) == "string" and SPRITE_BY_NAME[serverGhost.sprite] then
-      sprite, pic = serverGhost.sprite, SPRITE_BY_NAME[serverGhost.sprite]
+    if type(serverGhost.sprite) == "string" and type(serverGhost.pic) == "string"
+      and SPRITE_PAIR_OK[serverGhost.sprite .. "|" .. serverGhost.pic] then
+      sprite, pic = serverGhost.sprite, serverGhost.pic
     end
     local rec = {
       id = uid,
@@ -1092,11 +1311,13 @@ return function(mod)
   end
 
   -- =====================================================================
-  -- Battle trigger: watch the overworld each input step. GHOST SIGHT (below)
-  -- drives undefeated ghosts entirely on its own; the facing+interact check
-  -- further down only ever matters for a ghost that's already DEFEATED (see
-  -- ghostStep and engageGhost). No map-script registry, no talk lookup, no
-  -- trainer-object detection -- all under our control.
+  -- Battle trigger: watch the overworld each input step. An UNDEFEATED
+  -- ghost can be engaged two ways -- GHOST SIGHT (spots the player and
+  -- forces the approach) or facing+interacting with it directly (see
+  -- interactEngageUndefeated) -- both run the same battleSequenceRows. A
+  -- DEFEATED ghost only responds to facing+interact (see engageGhost). No
+  -- map-script registry, no talk lookup, no trainer-object detection -- all
+  -- under our control.
   --
   -- Position is read LIVE via mod.world:npc(mapId, name):position() rather
   -- than the ghost's captured x/y, since a GHOST SIGHT ghost that's mid-walk
@@ -1145,10 +1366,11 @@ return function(mod)
   end
 
   -- Manual interact -- only ever reached (see ghostStep) for a ghost that's
-  -- already DEFEATED; an undefeated ghost is only ever engaged via GHOST
-  -- SIGHT. Default: just replay its after-battle line (or a fallback line if
-  -- it was sent with none). REPEATABLE GHOST BATTLES: run the full
-  -- battle sequence again instead, exactly like the original encounter.
+  -- already DEFEATED (an undefeated ghost's interact goes to
+  -- interactEngageUndefeated instead). Default: just replay its
+  -- after-battle line (or a fallback line if it was sent with none).
+  -- REPEATABLE GHOST BATTLES: run the full battle sequence again instead,
+  -- exactly like the original encounter.
   local function engageGhost(game, rec, mapId, gx, gy, key)
     local class = injectTrainer(game, rec)  -- (re)inject in case the record changed
     if not class then engagedKey = key; return end
@@ -1196,11 +1418,13 @@ return function(mod)
   --     "same row or column, either direction" sweep, and it does NOT re-aim
   --     mid-approach (that's what makes chase feel like stalking).
   --
-  -- Re-arming: `world:current()` only resolves while the overworld is the
-  -- active state -- during the walk-up and the battle, it's not (a running
-  -- script / the battle state owns the stack), so `ghostStep` never even
-  -- reaches this function until we're genuinely back. The first tick that
-  -- happens IS the "the sequence is over" signal -- no arbitrary timers.
+  -- Re-arming: `world:current()` resolving is NOT proof the sequence is
+  -- over -- it turns out the overworld state stays on top of the stack
+  -- through the whole `move_npc_to` walk-up too (only `start_battle`
+  -- actually pushes something else), so `ghostStep`/`sightStep` DO get
+  -- reached mid-walk-up, repeatedly. Confirmed via `scriptRunning()`
+  -- (the engine's own `ScriptRunner:isRunning()`, reached through the
+  -- public `WorldAPI:overworld()`) instead of trusting that heuristic.
   local SIGHT_RANGE = 5
   local SIGHT_POLL_INTERVAL = 0.35
   local SIGHT_POST_SEQUENCE_GRACE = 2.0  -- avoids instantly re-spotting you at point-blank range right as you return
@@ -1208,12 +1432,72 @@ return function(mod)
   local sightCooldown = {}   -- npcName -> seconds remaining before the next check
   local sightAlerted = {}    -- npcName -> true while its approach+battle script is (believed) in flight
   local sightFacing = {}     -- npcName -> fixed lowercase direction, captured once
-  -- rec.id -> true between "we committed to a battle THIS session" and the
-  -- win landing. Gated on this session rather than just reading the defeat
-  -- flag, because a ghost beaten in an EARLIER session already has that
-  -- flag set on load -- without this we'd re-report a win every time the
-  -- player walked past an old, already-beaten ghost.
+
+  -- Ground-truth "is a script genuinely still running" check, via the
+  -- engine's own ScriptRunner (confirmed source: WorldAPI:queueScript does
+  -- `if ow.runner:isRunning() then return nil, "a script is already
+  -- running" end`). WorldAPI:overworld() is a real public method (scans
+  -- game.stack.states for the topmost isOverworld entry), so this is
+  -- reachable without private-field poking -- still an engine-internals
+  -- reach-in (isRunning() itself isn't exposed via any documented mod.*
+  -- surface), same category as Flags/SaveData.activeSlot elsewhere in this
+  -- mod. pcall-guarded since none of this is a supported API.
+  local function scriptRunning()
+    local ok, ow = pcall(function() return mod.world:overworld() end)
+    if not (ok and ow and ow.runner) then return false end
+    local ok2, running = pcall(function() return ow.runner:isRunning() end)
+    return ok2 and running == true
+  end
+  -- rec.id -> the rec itself, between "we committed to a battle THIS
+  -- session" and the result landing. Gated on this session rather than just
+  -- reading the defeat flag, because a ghost beaten in an EARLIER session
+  -- already has that flag set on load -- without this we'd re-report a win
+  -- every time the player walked past an old, already-beaten ghost.
+  --
+  -- Holds the REC (not just `true`) specifically so resolution never needs
+  -- to find the ghost on the current map again -- see resolvePendingResults
+  -- for why that matters.
   local awaitingResult = {}
+
+  -- Battle-result resolution -- trigger-agnostic (GHOST SIGHT and manual
+  -- interact both commit a battle the same way, via awaitingResult, so both
+  -- get resolved here the same way too). Once a battle we started is no
+  -- longer actually running, the ghost's own current defeat state tells us
+  -- the outcome: still undefeated = the challenger lost/fled = a WIN for
+  -- the ghost (reported); defeated = the challenger won = a LOSS for the
+  -- ghost (derived server-side as encounters - wins, nothing to send). See
+  -- queueOnlineReport's header comment for the win/loss-from-the-ghost's-
+  -- perspective framing.
+  --
+  -- CRITICAL (fixed 0.10.6): this deliberately iterates awaitingResult
+  -- ITSELF rather than being called per-ghost from ghostStep's current-map
+  -- loop, and runs before that loop's `list` early-out. The old per-map
+  -- version made the WIN case structurally unreachable: a ghost only ever
+  -- "wins" when the CHALLENGER loses, and losing warps the player to their
+  -- last heal point (OverworldState:afterBattle -> warpToHealPoint,
+  -- confirmed from engine source) -- a DIFFERENT MAP. By the next tick
+  -- ghostStep had already despawned/rebuilt for that new map, so the ghost
+  -- we'd just fought was never in `list`, its pending result was never
+  -- looked at, and the win went unreported every single time (confirmed
+  -- live: a server row with encounters=2, wins=0 after two real fights).
+  -- isDefeated() reads the engine's save Flags, which are save-global and
+  -- map-independent, so resolving off-map is perfectly accurate.
+  local function resolvePendingResults(game)
+    if next(awaitingResult) == nil then return end
+    if scriptRunning() then return end  -- still in flight, check again later
+    -- Clearing entries during pairs() is allowed in Lua (only ADDING keys
+    -- mid-traversal is undefined), and queueOnlineReport only appends to a
+    -- separate queue, so nothing can grow this table from in here.
+    for id, rec in pairs(awaitingResult) do
+      awaitingResult[id] = nil
+      if isDefeated(game, rec) then
+        log("ghost '%s' was beaten -- counts as its LOSS (derived server-side, nothing sent)",
+          tostring(rec.name or "?"))
+      else
+        queueOnlineReport(rec, "win")
+      end
+    end
+  end
 
   local function sightStep(game, w, mapId, entry, cur, dt)
     local rec = entry.rec
@@ -1223,9 +1507,17 @@ return function(mod)
     sightCooldown[name] = SIGHT_POLL_INTERVAL
 
     if sightAlerted[name] then
-      -- We're back in the overworld and this ghost's sequence was in flight
-      -- -- it must have finished (see re-arming note above). Re-arm with a
-      -- short grace period.
+      -- world:current() resolving again is NOT proof the sequence is over
+      -- -- it stays true through the whole move_npc_to walk-up too, since
+      -- that runs inside the SAME overworld state (only start_battle
+      -- actually pushes something non-overworld onto the stack). Confirmed
+      -- live: this used to fire on nearly every tick of the walk-up,
+      -- producing dozens of harmless-looking "script already running" log
+      -- lines. Ground-truth check via the engine's own ScriptRunner
+      -- instead (result reporting itself is handled by
+      -- resolvePendingResults, called once per tick from ghostStep --
+      -- this block is purely about re-arming GHOST SIGHT's own detection).
+      if scriptRunning() then return end
       sightAlerted[name] = false
       sightCooldown[name] = SIGHT_POST_SEQUENCE_GRACE
       return
@@ -1281,9 +1573,39 @@ return function(mod)
       -- encounter -- reporting on the sight CHECK instead would count every
       -- time the ray happened to line up. No-op for a local ghost.
       queueOnlineReport(rec, "encounter")
-      awaitingResult[rec.id] = true
+      awaitingResult[rec.id] = rec
     else
       log("sight-triggered script refused (%s) -- will retry next time in sight", tostring(qerr))
+    end
+  end
+
+  -- Manual interact trigger for an UNDEFEATED ghost -- same commit-then-
+  -- report bookkeeping as sightStep (battleSequenceRows, "encounter"
+  -- report, awaitingResult), just without the play_sound/emote/move_npc_to
+  -- walk-up, since the player is already standing adjacent and facing it.
+  -- Lets a player start the fight by talking to a ghost head-on instead of
+  -- only ever being ambushed via its fixed sight line.
+  local function interactEngageUndefeated(game, w, rec, name, mapId, gx, gy, key)
+    local class = injectTrainer(game, rec)  -- (re)inject in case the record changed
+    if not class then engagedKey = key; return end
+    local rows = battleSequenceRows(rec, class)
+    local pok, qok, qerr = pcall(function() return w:queueScript(rows) end)
+    if pok and qok then
+      engagedKey = key
+      -- Also mark this ghost as sight-alerted, even though sight had
+      -- nothing to do with this trigger -- it makes sightStep skip its own
+      -- (redundant, would-be-refused) detection attempts for the same
+      -- ghost while THIS battle is playing out, using the same
+      -- scriptRunning()-gated re-arm it already has for its own triggers.
+      sightAlerted[name] = true
+      log("interacted with undefeated ghost '%s' (%s) at %s:%s:%s -- battle queued",
+        rec.name or "?", class, mapId, gx, gy)
+      -- Same "the battle is now committed" honesty rule as sightStep's own
+      -- encounter report.
+      queueOnlineReport(rec, "encounter")
+      awaitingResult[rec.id] = rec
+    else
+      log("interact-triggered script refused (%s) -- will retry next time", tostring(qerr))
     end
   end
 
@@ -1307,6 +1629,12 @@ return function(mod)
     -- a poll.
     pollOnlineJobs(game)
 
+    -- Deliberately BEFORE the `list` early-out below, and independent of
+    -- the current map: a battle the player LOST warps them off the ghost's
+    -- map entirely, so anything gated on "the ghost is in this map's list"
+    -- would never resolve it (see resolvePendingResults).
+    resolvePendingResults(game)
+
     local list = mapGhosts[cur.mapId]
     if not list or #list == 0 then return end
 
@@ -1316,34 +1644,30 @@ return function(mod)
     for _, entry in ipairs(list) do
       if not isDefeated(game, entry.rec) then
         sightStep(game, w, cur.mapId, entry, cur, dt or 0)
-      elseif awaitingResult[entry.rec.id] then
-        -- Beaten, and we're the ones who saw the battle start this session:
-        -- the defeat flag flipping IS the win signal (battleSequenceRows
-        -- only set_flags on an actual win -- a loss or a flee skips it via
-        -- jump_if_false). Cleared immediately so a win reports exactly once
-        -- no matter how many ticks pass before the player leaves the map.
-        awaitingResult[entry.rec.id] = nil
-        queueOnlineReport(entry.rec, "win")
       end
     end
 
-    -- Manual interact is only meaningful for a DEFEATED ghost (see
-    -- engageGhost): dialogue replay, or a full rematch if REPEATABLE
-    -- GHOST BATTLES is on. An undefeated ghost is only ever engaged via
-    -- sight above, so it's excluded from this facing check entirely.
+    -- Manual interact: while a ghost is UNDEFEATED, talking to it face-on is
+    -- a second way to start the same battle GHOST SIGHT would (with its
+    -- dialogue), not just a fallback for standing outside its fixed sight
+    -- line. Once DEFEATED, interact is the ONLY way to engage it (see
+    -- engageGhost): dialogue replay, or a full rematch if REPEATABLE GHOST
+    -- BATTLES is on.
     local d = cur.facing and FACE_DELTA[normalizeDir(cur.facing)]
     local fx, fy = d and (cur.x + d[1]) or nil, d and (cur.y + d[2]) or nil
 
-    local facedRec, facedKey
+    local facedRec, facedName, facedKey, facedDefeated
     for _, entry in ipairs(list) do
-      if fx and isDefeated(game, entry.rec) then
+      if fx then
         local handle, gx, gy
         local ok = pcall(function() handle = w:npc(cur.mapId, entry.npcName) end)
         if ok and handle and handle.position then
           local ok2 = pcall(function() gx, gy = handle:position() end)
           if ok2 and gx == fx and gy == fy then
             facedRec = entry.rec
+            facedName = entry.npcName
             facedKey = cur.mapId .. ":" .. gx .. ":" .. gy
+            facedDefeated = isDefeated(game, entry.rec)
           end
         end
       end
@@ -1356,13 +1680,34 @@ return function(mod)
     if pressed == nil then
       if not warnedNoInput then
         warnedNoInput = true
-        log("no readable input source found -- defeated-ghost interact falls back to walk-up trigger")
+        log("no readable input source found -- ghost interact falls back to sight/walk-up trigger")
       end
     elseif not pressed then
-      return  -- facing a defeated ghost, but hasn't pressed the button yet
+      return  -- facing a ghost, but hasn't pressed the button yet
     end
 
-    engageGhost(game, facedRec, cur.mapId, fx, fy, facedKey)
+    if facedDefeated then
+      engageGhost(game, facedRec, cur.mapId, fx, fy, facedKey)
+    elseif sightAlerted[facedName] then
+      -- A GHOST SIGHT sequence for this exact ghost is in flight, or just
+      -- finished and hasn't been re-armed yet (see sightStep -- sightAlerted
+      -- only clears once scriptRunning() confirms it's genuinely over).
+      -- engagedKey alone doesn't cover this: sightStep's OWN trigger never
+      -- sets engagedKey, only sightAlerted. Without this check, the exact
+      -- button press that dismisses the ghost's final after-battle text
+      -- (on a LOSS -- the engine warps the player to their last heal point
+      -- from inside start_battle's own onFinish, but that happens AFTER our
+      -- script's remaining rows already ran, so the player is often still
+      -- standing right there facing the ghost when control returns) gets
+      -- read as a fresh interact against the still-undefeated ghost,
+      -- immediately queueing a genuine SECOND battle. Confirmed as the
+      -- cause of the "lose, then get battled again right after respawn"
+      -- report -- interact couldn't do this before it engaged undefeated
+      -- ghosts at all (pre-0.10.2).
+      log("interact ignored for '%s' -- a GHOST SIGHT sequence is still settling", tostring(facedName))
+    else
+      interactEngageUndefeated(game, w, facedRec, facedName, cur.mapId, fx, fy, facedKey)
+    end
   end
 
   local okHook = pcall(function()
@@ -1635,5 +1980,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.10.0)")
+  log("loaded (v0.11.0)")
 end

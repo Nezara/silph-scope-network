@@ -1,4 +1,4 @@
-# Silph Scope Network (test build 0.10.0)
+# Silph Scope Network (test build 0.11.0)
 -- Created with AI/Vibe Coding--
 
 Send your current character to another save as enemy trainer you can fight!
@@ -6,13 +6,11 @@ Send your current character to another save as enemy trainer you can fight!
 Save your current player character's location and current pokemon party to an external file. Load a different save and engage with them as a enemy trainer! 
 Mod Options allow you to repeat the fight if you wish. 
 
-### There is currently a bug in online mod preventing players from uploading their ghosts, I am looking into this. Please reach out on the Gen1Recomp Dsicord if you would like to assist in testing and trouble shooting.
-
 ## How to Use
 1. In the Start Menu there is an option to "Send Ghost" which sends your current player character and pokemon party to an external file.
 2. you will be provided the option to leave both pre-fight and post-fight dialogue, then to set an online password (see Online mode below).
 3. Save Game
-4. Load up a different save file, your previously sent ghost will be at the location the ghost was sent from ready to fight.
+4. Load up a different save file, your previously sent ghost will be at the location the ghost was sent from ready to fight. Either let it spot you (GHOST SIGHT) or walk up and interact with it yourself — both start the same battle.
 
 ## Dialogue
 
@@ -42,11 +40,36 @@ When you **SEND GHOST**, you're asked:
   (0.8.1) after an 0.8.0 bug (see changelog) briefly made it look
   unsupported; it wasn't the type, it was a `mod.options:define()` call
   wiping out the other options.
-- **GHOST SPRITE: \<name\>**
-— six toggles, Male - Biker, Cool Trainer, Hiker, Female - Beauty, Cool Trainer and Channeler
-- all OFF by default.
-- Turn one ON to make your NEXT sent ghost use that overworld sprite and matching battle
-  art instead of the default (Red). Turning on more than one may invalidate your ghost. 
+- **GHOST SPRITE** — a single dropdown (cycle with left/right), default
+  **RED (DEFAULT)**. Picks which overworld sprite + battle art your NEXT sent
+  ghost uses; doesn't change one already out there (same rule as
+  party/position, which are also only captured at SEND GHOST time).
+  **All 45 trainer portraits in the game are available** as of 0.11.0, each
+  labelled with its gender:
+  - **Classes (M)**: Bug Catcher, Youngster, Jr.Trainer, Cooltrainer,
+    Bird Keeper, Hiker, Blackbelt, Biker, Cue Ball, Super Nerd, Pokemaniac,
+    Burglar, Engineer, Rocker, Juggler, Tamer, Psychic, Fisherman, Swimmer,
+    Sailor, Gambler, Gentleman, Scientist, Rocket Grunt.
+  - **Classes (F)**: Lass, Jr.Trainer, Cooltrainer, Beauty, Channeler.
+  - **Gym leaders** (badge order): Brock, Misty, Lt. Surge, Erika, Koga,
+    Sabrina, Blaine, Giovanni.
+  - **Elite Four**: Lorelei, Bruno, Agatha, Lance.
+  - **Rival** — all three battle portraits (early / mid / champion) — and
+    **Prof. Oak**.
+  - Pairings aren't guessed from names: every one comes from the game's own
+    map data (every object carrying both a `sprite` and a `trainerClass`),
+    joined to that class's `pic` in `trainers.lua`. That caught two real
+    errors in the earlier short list — Bird Keeper actually walks around as
+    the Cooltrainer♂ sprite (not a "bird" sprite), and Lass uses
+    Cooltrainer♀ (not the Girl sprite, which is Sabrina's). Both corrected.
+  - Gen 1 has 45 portraits but only ~28 humanoid walking sprites, so
+    **several looks share an overworld sprite** — a Super Nerd, Pokemaniac,
+    Burglar, Engineer, Rocker and Brock all walk around identically and only
+    differ once the battle starts. That's how the original game does it.
+  - **History**: 6 mutually-exclusive toggles through 0.10.2, briefly a
+    CHOOSE SPRITE Start Menu screen in 0.10.3, then this `type = "choice"`
+    dropdown from 0.10.5. Selections made in 0.10.5+ carry over to 0.11.0
+    unchanged.
 
 **Sending is one-ghost-per-save.** SEND GHOST always replaces whatever this
 save already has out there — it doesn't accumulate. The new ghost has a
@@ -59,6 +82,10 @@ can tell the two cases apart.
 
 ## Where you can SEND a ghost from
 
+Confirmed working live (0.7.1). Trying **SEND GHOST** outside an allowed spot
+shows *"Unable to send ghost. Invalid location."* and stops there (no
+dialogue prompts).
+
 **Allowed**: routes (NOT town/city exteriors — allowed in 0.7.1 for easy
 testing, deliberately excluded as of 0.8.0), caves (Mt Moon, Rock Tunnel,
 Seafoam Islands, Victory Road, Diglett's Cave, Cerulean Cave), Viridian
@@ -68,6 +95,19 @@ Vermilion dock (neither is a town, both are open outdoor areas).
 
 **Blocked**: towns/cities, houses, marts, Pokémon Centers, gyms, Elite Four
 rooms, Oak's Lab, the Fighting Dojo, gates, and similar small interiors.
+
+This is a per-map-id allowlist built from the actual game data
+(`red/data/generated/maps.lua`), not a guess from tileset names — those
+turned out to be misleading (the tileset literally called `"MANSION"` is a
+Celadon side-quest building, *not* Pokémon Mansion; Pokémon Mansion is
+tileset `"FACILITY"`, which it shares with Silph Co, Rocket Hideout, Power
+Plant, *and* the Cinnabar/Saffron gyms — so gyms had to be excluded
+individually, not by tileset). Rocket Hideout and Power Plant weren't named
+explicitly in the request but fit the same "dungeon with trainers or wild
+spawns, not a house" pattern as the three named exceptions — flag it if
+either shouldn't be allowed. Any map id this list doesn't recognize is
+blocked by default (safe-by-default, since this is a restriction).
+
 
 ## Online mode (experimental, 0.8.2)
 
@@ -104,6 +144,32 @@ win/loss record:
 - **The tally resets every time you send a new ghost.** It belongs to the
   ghost that's currently out, not to you forever, so a fresh send always
   starts at zero.
+
+**Fixed in 0.10.1**: 0.10.0 had this backwards — a challenger *beating* your
+ghost was logging as a **win** for you instead of a loss. If you tested
+GHOST REPORT on 0.10.0 and the numbers looked flipped, that's why; wins/losses
+are now tallied correctly.
+
+**New in 0.10.2**: while a ghost is undefeated, you can now start the battle
+either by letting it spot you (GHOST SIGHT) *or* by walking up and
+interacting with it directly — both play the same dialogue and report the
+same way. Before this, interacting with an undefeated ghost did nothing at
+all; only GHOST SIGHT could start that first fight.
+
+**Fixed in 0.10.6**: wins were never being recorded at all. A ghost only
+"wins" when the challenger *loses* — and losing warps you to your last
+Pokémon Center, off the ghost's map, which is exactly where the old code
+stopped looking for the pending result. So every win silently went
+unreported and showed up as a loss instead. Results are now resolved
+independently of which map you're standing on. **Tallies from before 0.10.6
+undercount wins** — re-send your ghost to start clean.
+
+**Fixed in 0.10.4**: 0.10.2 could double-battle you if you LOST to a
+GHOST SIGHT-triggered fight — the exact button press that dismissed the
+ghost's final after-battle text could also be read as a fresh interact
+against the still-undefeated ghost you were still facing, instantly queueing
+a second fight. Interact now correctly waits for a GHOST SIGHT sequence to
+fully settle before it can trigger again.
 
 Requires ONLINE MODE (a local-only ghost has nothing to report). Only
 downloaded ghosts report battles — fighting your own ghost from another
@@ -204,6 +270,18 @@ distinguishes "your other save" from "this one." Defeat state is tracked the
 same way it should be: per receiving save, via the engine's own `Flags`
 module (`save.flags`), not shared globally across every save that fights
 this ghost.
+
+**If `SaveData.activeSlot` isn't available on your build** (it failed on at
+least one real tester's client), the mod falls back to a random id minted
+**once** and stored as a flag inside your save file, so it stays the same
+forever after. **Fixed in 0.10.7** — the old fallback regenerated itself
+every session, which meant each send created an *extra* ghost on the server
+instead of replacing your previous one, and GHOST REPORT could never find
+your own ghost ("you have no ghost out there" right after a successful
+upload). One caveat: a freshly-minted id only sticks once you **save the
+game** — send a ghost and quit without saving and you'll get a new identity
+next time. Saves where `activeSlot` works are completely unaffected and keep
+their existing identity.
 
 ## Known limitations:
 - Downloaded ghosts don't carry exact IVs (same limitation local ghosts
