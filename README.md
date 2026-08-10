@@ -1,16 +1,11 @@
 # Silph Scope Network (test build 0.12.0)
 -- Created with AI/Vibe Coding--
 
-Send your current character to another save as enemy trainer you can fight!
+Send your current character to another player online as enemy trainer they can fight!
 
-Save your current player character's location and current pokemon party to an external file. Load a different save and engage with them as a enemy trainer! 
-Mod Options allow you to repeat the fight if you wish. 
+Save your current player character's location and current Pokémon party to an external file' which is uploaded to the server other players will import into their world. 
 
 ## How to Use
-1. In the Start Menu there is an option to "Send Ghost" which sends your current player character and pokemon party to an external file.
-2. you will be provided the option to leave both pre-fight and post-fight dialogue, then to set an online password (see Online mode below).
-3. Save Game
-4. Load up a different save file, your previously sent ghost will be at the location the ghost was sent from ready to fight. Either let it spot you (GHOST SIGHT) or walk up and interact with it yourself — both start the same battle.
 
 ## Dialogue
 
