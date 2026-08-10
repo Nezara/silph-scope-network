@@ -59,10 +59,6 @@ can tell the two cases apart.
 
 ## Where you can SEND a ghost from
 
-Confirmed working live (0.7.1). Trying **SEND GHOST** outside an allowed spot
-shows *"Unable to send ghost. Invalid location."* and stops there (no
-dialogue prompts).
-
 **Allowed**: routes (NOT town/city exteriors — allowed in 0.7.1 for easy
 testing, deliberately excluded as of 0.8.0), caves (Mt Moon, Rock Tunnel,
 Seafoam Islands, Victory Road, Diglett's Cave, Cerulean Cave), Viridian
