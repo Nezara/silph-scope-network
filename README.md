@@ -56,20 +56,9 @@ When you **SEND GHOST**, you're asked:
   - **Elite Four**: Lorelei, Bruno, Agatha, Lance.
   - **Rival** — all three battle portraits (early / mid / champion) — and
     **Prof. Oak**.
-  - Pairings aren't guessed from names: every one comes from the game's own
-    map data (every object carrying both a `sprite` and a `trainerClass`),
-    joined to that class's `pic` in `trainers.lua`. That caught two real
-    errors in the earlier short list — Bird Keeper actually walks around as
-    the Cooltrainer♂ sprite (not a "bird" sprite), and Lass uses
-    Cooltrainer♀ (not the Girl sprite, which is Sabrina's). Both corrected.
-  - Gen 1 has 45 portraits but only ~28 humanoid walking sprites, so
-    **several looks share an overworld sprite** — a Super Nerd, Pokemaniac,
+  - **several looks share an overworld sprite** — a Super Nerd, Pokemaniac,
     Burglar, Engineer, Rocker and Brock all walk around identically and only
     differ once the battle starts. That's how the original game does it.
-  - **History**: 6 mutually-exclusive toggles through 0.10.2, briefly a
-    CHOOSE SPRITE Start Menu screen in 0.10.3, then this `type = "choice"`
-    dropdown from 0.10.5. Selections made in 0.10.5+ carry over to 0.11.0
-    unchanged.
 
 **Sending is one-ghost-per-save.** SEND GHOST always replaces whatever this
 save already has out there — it doesn't accumulate. The new ghost has a
@@ -82,10 +71,6 @@ can tell the two cases apart.
 
 ## Where you can SEND a ghost from
 
-Confirmed working live (0.7.1). Trying **SEND GHOST** outside an allowed spot
-shows *"Unable to send ghost. Invalid location."* and stops there (no
-dialogue prompts).
-
 **Allowed**: routes (NOT town/city exteriors — allowed in 0.7.1 for easy
 testing, deliberately excluded as of 0.8.0), caves (Mt Moon, Rock Tunnel,
 Seafoam Islands, Victory Road, Diglett's Cave, Cerulean Cave), Viridian
@@ -95,19 +80,6 @@ Vermilion dock (neither is a town, both are open outdoor areas).
 
 **Blocked**: towns/cities, houses, marts, Pokémon Centers, gyms, Elite Four
 rooms, Oak's Lab, the Fighting Dojo, gates, and similar small interiors.
-
-This is a per-map-id allowlist built from the actual game data
-(`red/data/generated/maps.lua`), not a guess from tileset names — those
-turned out to be misleading (the tileset literally called `"MANSION"` is a
-Celadon side-quest building, *not* Pokémon Mansion; Pokémon Mansion is
-tileset `"FACILITY"`, which it shares with Silph Co, Rocket Hideout, Power
-Plant, *and* the Cinnabar/Saffron gyms — so gyms had to be excluded
-individually, not by tileset). Rocket Hideout and Power Plant weren't named
-explicitly in the request but fit the same "dungeon with trainers or wild
-spawns, not a house" pattern as the three named exceptions — flag it if
-either shouldn't be allowed. Any map id this list doesn't recognize is
-blocked by default (safe-by-default, since this is a restriction).
-
 
 ## Online mode (experimental, 0.8.2)
 
@@ -145,32 +117,6 @@ win/loss record:
   ghost that's currently out, not to you forever, so a fresh send always
   starts at zero.
 
-**Fixed in 0.10.1**: 0.10.0 had this backwards — a challenger *beating* your
-ghost was logging as a **win** for you instead of a loss. If you tested
-GHOST REPORT on 0.10.0 and the numbers looked flipped, that's why; wins/losses
-are now tallied correctly.
-
-**New in 0.10.2**: while a ghost is undefeated, you can now start the battle
-either by letting it spot you (GHOST SIGHT) *or* by walking up and
-interacting with it directly — both play the same dialogue and report the
-same way. Before this, interacting with an undefeated ghost did nothing at
-all; only GHOST SIGHT could start that first fight.
-
-**Fixed in 0.10.6**: wins were never being recorded at all. A ghost only
-"wins" when the challenger *loses* — and losing warps you to your last
-Pokémon Center, off the ghost's map, which is exactly where the old code
-stopped looking for the pending result. So every win silently went
-unreported and showed up as a loss instead. Results are now resolved
-independently of which map you're standing on. **Tallies from before 0.10.6
-undercount wins** — re-send your ghost to start clean.
-
-**Fixed in 0.10.4**: 0.10.2 could double-battle you if you LOST to a
-GHOST SIGHT-triggered fight — the exact button press that dismissed the
-ghost's final after-battle text could also be read as a fresh interact
-against the still-undefeated ghost you were still facing, instantly queueing
-a second fight. Interact now correctly waits for a GHOST SIGHT sequence to
-fully settle before it can trigger again.
-
 Requires ONLINE MODE (a local-only ghost has nothing to report). Only
 downloaded ghosts report battles — fighting your own ghost from another
 save on the same machine doesn't count.
@@ -205,53 +151,6 @@ ghost** (A's ghost is private to the `TEST` pool), but A *will* still see
 B's public ghost. If you're testing between two of your own saves and one
 of them has a password set, that alone can look exactly like "online mode
 is broken." Set both to the same password, or clear both to blank.
-
-**Diagnosing "I see no online ghosts"**: check
-`silphscope_network/debug.log` in your save folder. Every map entry with
-ONLINE MODE on now logs the request (including whether a password is in
-play) and the result, e.g.:
-
-```
-online: requesting ghosts for map ROUTE_1 (password SET)
-online: server returned 0 ghost(s), spawned 0 on map ROUTE_1
-```
-
-`returned 0` means the server had nothing matching those maps *and* that
-password — usually the password mismatch above, or genuinely nobody else
-nearby. `returned 2, spawned 0` instead means the records arrived but were
-skipped client-side (already present locally, or malformed).
-
-## "I sent a ghost but nobody else can see it"
-
-Read this first if you're testing with other people — in practice almost
-every report of this has one of two causes, and neither is a network fault:
-
-1. **ONLINE MODE was off.** It defaults to **off**, and before 0.9.4 a send
-   with it off gave you the *exact same* "sent to the void!" confirmation as
-   a real upload — so it looked like it worked while the ghost never left
-   your machine. Turn ONLINE MODE on in the mod options, then send again.
-   As of 0.9.4 the confirmation says so outright, and `debug.log` records
-   `online upload skipped: ONLINE MODE option is OFF`.
-2. **You sent from a town.** Town and city exteriors are blocked send
-   locations (see above), and the early game is mostly towns — a brand new
-   save standing in Pallet Town can't send at all. You'll get *"Unable to
-   send ghost. Invalid location."* Walk out to a route and try there.
-
-A successful online send logs `online upload started` followed by
-`online upload finished: {"ok":true}`, and shows a second **"Ghost uploaded
-online!"** message in game. If you see neither, it never went out.
-
-**As of 0.9.5 a failed upload says so on screen.** Before that, *only*
-success was shown — every failure was written to the log and nothing else,
-so a send that failed looked identical to one that never tried to upload at
-all. That made it impossible to tell apart remotely. Now you'll get one of:
-
-- **"Upload failed to start."** — the ghost couldn't even be packaged
-  (payload too big, or something in the name/dialogue the encoder rejected).
-- **"Ghost upload failed."** — the request went out and errored (no network,
-  timeout, DNS).
-- **"Server rejected the ghost."** — it reached the server and was refused,
-  with the server's own reason.
 
 Each one shows the underlying reason on a second page. **If you're testing
 and an upload fails, please screenshot that reason** — it names the actual
