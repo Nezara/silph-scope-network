@@ -73,19 +73,6 @@ Vermilion dock (neither is a town, both are open outdoor areas).
 **Blocked**: towns/cities, houses, marts, Pokémon Centers, gyms, Elite Four
 rooms, Oak's Lab, the Fighting Dojo, gates, and similar small interiors.
 
-This is a per-map-id allowlist built from the actual game data
-(`red/data/generated/maps.lua`), not a guess from tileset names — those
-turned out to be misleading (the tileset literally called `"MANSION"` is a
-Celadon side-quest building, *not* Pokémon Mansion; Pokémon Mansion is
-tileset `"FACILITY"`, which it shares with Silph Co, Rocket Hideout, Power
-Plant, *and* the Cinnabar/Saffron gyms — so gyms had to be excluded
-individually, not by tileset). Rocket Hideout and Power Plant weren't named
-explicitly in the request but fit the same "dungeon with trainers or wild
-spawns, not a house" pattern as the three named exceptions — flag it if
-either shouldn't be allowed. Any map id this list doesn't recognize is
-blocked by default (safe-by-default, since this is a restriction).
-
-
 ## Online mode (experimental, 0.8.2)
 
 A small server (Cloudflare Worker + D1) that ghosts can additionally upload
