@@ -1,4 +1,4 @@
-# Silph Scope Network (test build 0.9.4)
+# Silph Scope Network (test build 0.9.5)
 -- Created with AI/Vibe Coding--
 
 Send your current character to another save as enemy trainer you can fight!
@@ -169,6 +169,22 @@ every report of this has one of two causes, and neither is a network fault:
 A successful online send logs `online upload started` followed by
 `online upload finished: {"ok":true}`, and shows a second **"Ghost uploaded
 online!"** message in game. If you see neither, it never went out.
+
+**As of 0.9.5 a failed upload says so on screen.** Before that, *only*
+success was shown — every failure was written to the log and nothing else,
+so a send that failed looked identical to one that never tried to upload at
+all. That made it impossible to tell apart remotely. Now you'll get one of:
+
+- **"Upload failed to start."** — the ghost couldn't even be packaged
+  (payload too big, or something in the name/dialogue the encoder rejected).
+- **"Ghost upload failed."** — the request went out and errored (no network,
+  timeout, DNS).
+- **"Server rejected the ghost."** — it reached the server and was refused,
+  with the server's own reason.
+
+Each one shows the underlying reason on a second page. **If you're testing
+and an upload fails, please screenshot that reason** — it names the actual
+cause and is the fastest way to get it fixed.
 
 
 

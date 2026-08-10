@@ -756,6 +756,22 @@ return function(mod)
   local pendingUpload  -- { jobId = ... } or nil
   local pendingNearby   -- { jobId = ..., forMapId = ... } or nil
 
+  -- Tell the PLAYER when an upload didn't work, not just the log file.
+  -- Until v0.9.5 only SUCCESS surfaced in game ("Ghost uploaded online!") --
+  -- every failure path (couldn't build the payload, the request errored,
+  -- the server rejected it) was log-only, so a tester whose upload failed
+  -- saw exactly what a local-only send looks like and had no idea anything
+  -- was wrong. That made remote diagnosis impossible: neither the tester nor
+  -- the mod author could tell "never tried" from "tried and failed". The
+  -- reason is included, trimmed, so a tester can just read it out.
+  local function notifyUploadProblem(game, headline, reason)
+    local detail = tostring(reason or "")
+    detail = detail:gsub("%s+", " "):sub(1, 60)
+    local msg = headline
+    if detail ~= "" then msg = msg .. "\f" .. detail end
+    pcall(function() game.stack:push(TextBox.new(game, msg)) end)
+  end
+
   local function startOnlineUpload(game, rec)
     -- Say WHY we're not uploading. This used to return in total silence,
     -- which made the single most common failure -- ONLINE MODE simply being
@@ -806,6 +822,7 @@ return function(mod)
       log("online upload started (job %s)", tostring(jobId))
     else
       log("online upload failed to start: %s", tostring(jobId))
+      notifyUploadProblem(game, "Upload failed to\nstart.", jobId)
     end
   end
 
@@ -917,9 +934,16 @@ return function(mod)
           local decoded = select(2, pcall(Json.decode, result.body))
           if type(decoded) == "table" and decoded.ok == true then
             game.stack:push(TextBox.new(game, "Ghost uploaded\nonline!"))
+          else
+            -- Reached the server but it said no (or sent something we
+            -- couldn't parse) -- surface it instead of failing silently.
+            local why = type(decoded) == "table" and decoded.error or result.body
+            log("online upload rejected by server: %s", tostring(why))
+            notifyUploadProblem(game, "Server rejected\nthe ghost.", why)
           end
         else
           log("online upload failed: %s", tostring(result.err))
+          notifyUploadProblem(game, "Ghost upload\nfailed.", result.err)
         end
         pcall(Fetch.release, pendingUpload.jobId)
         pendingUpload = nil
@@ -1461,5 +1485,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.9.4)")
+  log("loaded (v0.9.5)")
 end
