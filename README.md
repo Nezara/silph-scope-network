@@ -35,11 +35,7 @@ When you **SEND GHOST**, you're asked:
   a full rematch instead.
 - **ONLINE MODE** — OFF (default). See below.
 - **ONLINE GHOST COUNT** — 1-5, default 3. How many ghosts to request from
-  the server per map (only matters with ONLINE MODE on). Uses
-  `type = "number"` in the option definition — **confirmed working live**
-  (0.8.1) after an 0.8.0 bug (see changelog) briefly made it look
-  unsupported; it wasn't the type, it was a `mod.options:define()` call
-  wiping out the other options.
+  the server per map (only matters with ONLINE MODE on).
 - **GHOST SPRITE** — a single dropdown (cycle with left/right), default
   **RED (DEFAULT)**. Picks which overworld sprite + battle art your NEXT sent
   ghost uses; doesn't change one already out there (same rule as
