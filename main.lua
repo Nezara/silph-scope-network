@@ -1146,6 +1146,20 @@ return function(mod)
     if type(serverGhost) ~= "table" or type(serverGhost.id) ~= "string" then return false end
     if type(serverGhost.x) ~= "number" or type(serverGhost.y) ~= "number" then return false end
     if type(serverGhost.party) ~= "table" or #serverGhost.party == 0 then return false end
+    -- nearbyMapIds queries the current map PLUS every directly-connected
+    -- neighbor (so the server can answer in one round trip), but a ghost
+    -- from a neighboring map must only ever be spawned on ITS OWN map --
+    -- spawning it here (on forMapId) would place it using x/y coordinates
+    -- that were never meant for this map, and the same ghost would then
+    -- appear a second time (wrongly) the moment the player actually walks
+    -- onto the neighboring map and it's fetched again, correctly, there.
+    -- Confirmed live: AAA/WILL (stored on ROUTE_1) also rendering in
+    -- PALLET_TOWN/VIRIDIAN_CITY, both connected to ROUTE_1.
+    if serverGhost.mapId ~= mapId then
+      log("online ghost from '%s' skipped -- belongs on map %s, not %s",
+        tostring(serverGhost.id), tostring(serverGhost.mapId), tostring(mapId))
+      return false
+    end
     if mapOrigins[mapId] and mapOrigins[mapId][serverGhost.id] then
       log("online ghost from '%s' skipped -- already present on map %s (local or earlier online spawn)",
         tostring(serverGhost.id), tostring(mapId))
