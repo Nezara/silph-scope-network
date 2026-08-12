@@ -3,22 +3,62 @@
 
 Send your current character to another player online as enemy trainer they can fight!
 
-Save your current player character's location and current Pokémon party to an external file' which is uploaded to the server other players will import into their world. 
-
 ## How to Use
 
-## Dialogue
+**Start Menu** now has 3 new options.
+1. Send Ghost
+2. Online Password
+3. Ghost Report
 
-When you **SEND GHOST**, you're asked:
+## 1. SEND GHOST
 
-1. *"Include dialogue with this ghost?"* (default **NO**). Say no and the
-   ghost is sent with no lines.
-2. If yes: a text-entry screen for the **before-battle line** (engine's own
-   naming/keyboard screen, capped at 48 characters — comparable to a normal
-   NPC's line length in this engine's own text data).
-3. Then: *"Add an after-battle line too?"* (default **NO**) — only asked
-   after the before-battle line is done, never if you said no to step 1.
-4. If yes: a second text-entry screen for the **after-battle line**.
+*"Include dialogue with this ghost?"* (default "No").
+    -If **NO** and the ghost is sent with no lines.
+   - If **YES**: a text-entry screen for the **before-battle line** (capped at 48 characters)
+Then: *"Add an after-battle line too?"* (default "No") 
+   - If **YES**: a second text-entry screen for the **after-battle line**. (capped at 48 characters)
+
+   *"Set an online Password?"* (default "No").
+   Password is used for connecting your ghost with players use set an ONLINE PASSWORD (see below) 
+
+   **Then your ghost is sent online** 
+
+**Your "GHOST" will attempt to be sent to the server that others can see and interreact with as a hostile enemy trainer. 
+
+## 2. ONLINE PASSWORD
+
+**Password (private pools)**: at SEND GHOST time, after the dialogue
+prompts, you're asked *"Set an online password?"* (default **NO**, keeps
+whatever password this save last set — starts blank/public if you've never
+set one). Say yes to type a room code:
+
+- A ghost sent with **no password** is public — every downloader can see it,
+  regardless of their own password.
+- A ghost sent **with a password** is only visible to downloaders whose own
+  currently-remembered password matches it exactly — a private pool for a
+  friend group or a streamer's run, separate from the public one.
+
+The password also becomes this save's remembered password for its own
+`/nearby` downloads going forward, until you change it at a later send.
+
+## 3 GHOST REPORT 
+
+**GHOST REPORT (Start Menu)**: find out how your ghost is doing out there.
+Shows the map it's waiting on, how many trainers have found it, and its
+win/loss record:
+
+> Your ghost on ROUTE_1 has been found by 7 trainer(s)!
+> It won 4 and lost 3.
+
+- An **encounter** is counted the moment a battle actually starts (the
+  ghost has spotted someone and they can no longer walk away) — not every
+  time someone wanders past.
+- A **loss** means someone actually **beat** your ghost. A **win** is
+  everything else — they lost, they ran, or they quit mid-battle. Walking
+  out on a fight concedes it to your ghost.
+- **The tally resets every time you send a new ghost.** It belongs to the
+  ghost that's currently out, not to you forever, so a fresh send always
+  starts at zero.
 
 ## Options (mod options menu)
 
@@ -102,57 +142,8 @@ already-loaded map data — the server never needs to know the game's map
 layout), excluding your own upload. Matching ghosts get spawned the same way
 local ones do.
 
-**GHOST REPORT (Start Menu)**: find out how your ghost is doing out there.
-Shows the map it's waiting on, how many trainers have found it, and its
-win/loss record:
 
-> Your ghost on ROUTE_1 has been found by 7 trainer(s)!
-> It won 4 and lost 3.
 
-- An **encounter** is counted the moment a battle actually starts (the
-  ghost has spotted someone and they can no longer walk away) — not every
-  time someone wanders past.
-- A **loss** means someone actually **beat** your ghost. A **win** is
-  everything else — they lost, they ran, or they quit mid-battle. Walking
-  out on a fight concedes it to your ghost.
-- **The tally resets every time you send a new ghost.** It belongs to the
-  ghost that's currently out, not to you forever, so a fresh send always
-  starts at zero.
-
-Requires ONLINE MODE (i.e. OFFLINE MODE off) — a local-only ghost has
-nothing to report. Only downloaded ghosts report battles — fighting your own
-ghost from another save on the same machine doesn't count.
-
-**Password (private pools)**: at SEND GHOST time, after the dialogue
-prompts, you're asked *"Set an online password?"* (default **NO**, keeps
-whatever password this save last set — starts blank/public if you've never
-set one). Say yes to type a room code:
-
-- A ghost sent with **no password** is public — every downloader can see it,
-  regardless of their own password.
-- A ghost sent **with a password** is only visible to downloaders whose own
-  currently-remembered password matches it exactly — a private pool for a
-  friend group or a streamer's run, separate from the public one.
-
-The password also becomes this save's remembered password for its own
-`/nearby` downloads going forward, until you change it at a later send. Like
-everything else this mod sends, it travels in a plain-HTTP query string —
-treat it as a room code, not a real credential.
-
-**Setting a password without sending a ghost**: the Start Menu also has an
-**ONLINE PASSWORD** entry, separate from SEND GHOST — for a player who only
-wants to *download* ghosts from a private pool and doesn't need to send
-their own. Opens the same text-entry screen, prefilled with whatever this
-save currently has set; typing a new value (or clearing it to blank)
-updates it immediately, no ghost upload involved. Whichever was set most
-recently — here or at a SEND GHOST — is what's currently in effect.
-
-**Careful — passwords are not symmetric.** This trips people up: if save A
-sends with password `TEST` and save B has no password, **B will not see A's
-ghost** (A's ghost is private to the `TEST` pool), but A *will* still see
-B's public ghost. If you're testing between two of your own saves and one
-of them has a password set, that alone can look exactly like "online mode
-is broken." Set both to the same password, or clear both to blank.
 
 Each one shows the underlying reason on a second page. **If you're testing
 and an upload fails, please screenshot that reason** — it names the actual
