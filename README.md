@@ -1,4 +1,4 @@
-# Silph Scope Network (test build 0.12.0)
+# Silph Scope Network (test build 0.12.1)
 -- Created with AI/Vibe Coding--
 
 Send your current character to another player online as enemy trainer they can fight!
