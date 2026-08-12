@@ -24,6 +24,20 @@ Then: *"Add an after-battle line too?"* (default "No")
    **Then your ghost is sent online** 
 
 
+## Beating a ghost pays out
+
+Every ghost carries a bounty: **20% of whatever money the sender had on
+hand at SEND GHOST time**, capped at $5000. Beat their ghost and that
+amount is added straight to your own wallet — it's minted for you, not
+taken from the sender, so their own balance is never touched by someone
+else fighting their ghost.
+
+- Snapshotted once, at send time, same as the party and position — a
+  ghost's bounty doesn't change later even if the sender's own money does.
+- Pays out **once**: the first time you beat a given ghost. A rematch (if
+  REPEATABLE GHOST BATTLES is on) doesn't pay out again.
+
+
 ## 2. ONLINE PASSWORD
 
 **Password (private pools)**: at SEND GHOST time, after the dialogue
