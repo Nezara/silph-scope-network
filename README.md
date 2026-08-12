@@ -121,9 +121,7 @@ keeps working exactly as before, regardless of this setting — local ghosts
 never leave the machine either way). **ONLINE MODE is on by default.**
 
 **OFFLINE MODE** (mod option, OFF by default) is the opt-out: turn it **ON**
-to keep a save entirely local — no uploads, no downloads, identical to how
-the mod behaved before online mode existed. Good for a save you don't want
-appearing on other players' machines, or for playing with no network at all.
+to keep a save entirely local — useful for send your player character across saves. Have multiple playthrough? now you can battle your different teams. 
 
 **Upload**: happens automatically whenever you **SEND GHOST**, unless
 OFFLINE MODE is on, using the exact same captured position/party/dialogue as
