@@ -26,16 +26,12 @@ Then: *"Add an after-battle line too?"* (default "No")
 
 ## Beating a ghost pays out
 
-Every ghost carries a bounty: **20% of whatever money the sender had on
-hand at SEND GHOST time**, capped at $5000. Beat their ghost and that
-amount is added straight to your own wallet — it's minted for you, not
-taken from the sender, so their own balance is never touched by someone
-else fighting their ghost.
-
-- Snapshotted once, at send time, same as the party and position — a
-  ghost's bounty doesn't change later even if the sender's own money does.
-- Pays out **once**: the first time you beat a given ghost. A rematch (if
-  REPEATABLE GHOST BATTLES is on) doesn't pay out again.
+A ghost battle pays out just like a normal trainer battle: beat it and you
+get money for winning, same as fighting any other trainer in the game. The
+amount depends on which **GHOST SPRITE** the sender picked — under the
+hood, a ghost pays out exactly what a real trainer of that class would
+(a Youngster's ghost is a small win, a Gym Leader's or Elite Four member's
+is a bigger one).
 
 
 ## 2. ONLINE PASSWORD

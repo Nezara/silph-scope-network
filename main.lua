@@ -233,16 +233,6 @@ local ONLINE_SERVER_URL = "http://silph-scope-network.silphscopenetwork.workers.
 local ONLINE_UPLOAD_MAX_BYTES = 6000  -- stay under the server's own 8000-byte cap after overhead
 local ONLINE_DEFAULT_COUNT = 3        -- used if the numeric option type isn't supported (see below)
 
--- Beating a ghost pays out a slice of what its SENDER had on hand at SEND
--- GHOST time. MINTED, not deducted -- the sender's own save is never
--- touched, so this can't be used to grief a specific player by farming their
--- ghost. Flat-capped rather than clamped to the game's own money ceiling: a
--- ghost is a side reward, not a jackpot, so it's held to roughly what any
--- regular NPC trainer could plausibly hand out, same cap for every game
--- version this mod ever supports.
-local MONEY_REWARD_PCT = 0.20
-local MONEY_REWARD_CAP = 5000
-
 -- =========================================================================
 -- Where a ghost is allowed to be SENT from: outdoor routes (NOT town/city
 -- exteriors -- those were allowed in 0.7.1 for easy testing, deliberately
@@ -755,18 +745,39 @@ return function(mod)
     return ok and result == true
   end
 
-  -- 20% of the sender's money at SEND GHOST time, floored to a whole number
-  -- and capped at MONEY_REWARD_CAP -- never negative (money itself can't go
-  -- negative in this engine, but a stray non-number input shouldn't produce
-  -- one either). Used both to compute a fresh snapshot at send time and to
-  -- re-clamp a `reward` value arriving off the wire from another player's
-  -- client, which must never be trusted at face value.
-  local function sanitizeReward(value)
-    local n = tonumber(value) or 0
-    if n < 0 then n = 0 end
-    n = math.floor(n)
-    if n > MONEY_REWARD_CAP then n = MONEY_REWARD_CAP end
-    return n
+  -- Money reward, entirely in-game: no snapshot, no server round-trip. Every
+  -- GHOST_SPRITES pic already corresponds 1:1 to a REAL vanilla trainer
+  -- class (that's how the sprite/pic pairs were mined in the first place --
+  -- see [[gen1recomp-modding]]), and every one of those classes already has
+  -- a real `baseMoney` the vanilla game itself balances. So instead of
+  -- inventing a reward number, just look up which class the ghost's chosen
+  -- battle art actually belongs to and reuse ITS baseMoney -- the engine's
+  -- own existing trainer-victory formula (`baseMoney * enemy's last mon's
+  -- level`, BattleState.lua) then pays out and prints the correct amount
+  -- entirely on its own, no custom give_money/show_text needed. Built once
+  -- and cached: `source ~= MOD_ID` excludes our OWN injected ghost classes
+  -- from the scan, so an earlier ghost injection can never poison this
+  -- lookup by having its OWN entry (initially baseMoney 0/looked-up) match
+  -- some other ghost's pic first.
+  local ghostBaseMoneyByPic  -- built lazily; nil until first use
+  local GHOST_DEFAULT_BASE_MONEY = 35  -- OPP_RIVAL1's own baseMoney -- used
+    -- whenever a ghost's pic has no real trainer-class match (the default
+    -- Red look uses trainer_card art, which isn't a battle-trainer pic at
+    -- all) -- a rival fits the "unclassed player-lookalike" case thematically
+    -- and 35 sits solidly mid-pack among real classes (range 5-99).
+  local function baseMoneyForPic(game, pic)
+    if not ghostBaseMoneyByPic then
+      ghostBaseMoneyByPic = {}
+      local ok = pcall(function()
+        for _, t in pairs(game.data.trainers) do
+          if t.source ~= MOD_ID and type(t.pic) == "string" and type(t.baseMoney) == "number" then
+            ghostBaseMoneyByPic[t.pic] = t.baseMoney
+          end
+        end
+      end)
+      if not ok then ghostBaseMoneyByPic = {} end
+    end
+    return (pic and ghostBaseMoneyByPic[pic]) or GHOST_DEFAULT_BASE_MONEY
   end
 
   -- BattleState.newTrainer (src/battle/BattleState.lua) reads
@@ -795,14 +806,15 @@ return function(mod)
       end
     end
     if #slots == 0 then return nil end
+    local pic = rec.pic or PLAYER_PIC
     game.data.trainers[class] = {
       id       = class,
       index    = -1,
       name     = rec.name or "RIVAL",
-      pic      = rec.pic or PLAYER_PIC,
+      pic      = pic,
       parties  = { slots },
       aiMods   = { 1 },
-      baseMoney = 0,
+      baseMoney = baseMoneyForPic(game, pic),
       source   = MOD_ID,
     }
     return class
@@ -1047,7 +1059,6 @@ return function(mod)
         x = rec.x, y = rec.y, facing = rec.facing, party = party,
         beforeText = rec.beforeText, afterText = rec.afterText,
         sprite = rec.sprite, pic = rec.pic, password = rec.password or "",
-        reward = rec.reward or 0,
       }
       local jsonStr = Json.encode(payload)
       if #jsonStr > ONLINE_UPLOAD_MAX_BYTES then
@@ -1228,11 +1239,6 @@ return function(mod)
       afterText = serverGhost.afterText,
       sprite = sprite,
       pic = pic,
-      -- Never trust the wire's number at face value (a malicious or buggy
-      -- client could send anything) -- re-clamp through the same helper a
-      -- fresh local send uses, so a downloaded ghost can never pay out more
-      -- than MONEY_REWARD_CAP regardless of what the server actually stored.
-      reward = sanitizeReward(serverGhost.reward),
     }
     return spawnOneGhost(game, w, mapId, rec)
   end
@@ -1402,31 +1408,28 @@ return function(mod)
   -- GHOST SIGHT (sightStep) and the defeated-ghost interact path
   -- (engageGhost) build their scripts around this same shared tail.
   --
-  -- payReward (default false) gates the money payout (see MONEY_REWARD_PCT)
-  -- so it only ever fires on the win that ACTUALLY flips the defeat flag
-  -- from unset to set, never on a REPEATABLE GHOST BATTLES rematch of an
-  -- already-defeated ghost. Deliberately not re-derived from isDefeated()
-  -- in here: sightStep and interactEngageUndefeated are only ever called
-  -- while a ghost is undefeated (see ghostStep's own routing), and
-  -- engageGhost's repeatable branch is only ever called once it's already
-  -- defeated, so each call site already knows which case it is -- passing
-  -- payReward=true from the first two and omitting it from the third rides
-  -- that existing invariant instead of adding a second, redundant check.
-  -- The injected trainer's own baseMoney is always 0 (see injectTrainer),
-  -- so this give_money row is the ghost's ENTIRE payout, not a top-up.
-  local function battleSequenceRows(rec, class, payReward)
+  -- Money is handled entirely by the engine's own trainer-victory code now
+  -- (see baseMoneyForPic/injectTrainer) -- no custom give_money/show_text
+  -- row needed here at all, just the win-flag bookkeeping this always had.
+  --
+  -- Sender-authored dialogue (rec.beforeText/afterText) is a bare literal
+  -- string with no speaker tag of its own, unlike a vanilla trainer's own
+  -- battle-end line (BattleState prefixes THAT with "<Name>: " itself, but
+  -- only for its own endBattleText field -- our before/after lines go
+  -- through a plain overworld show_text, which has no such mechanism, so
+  -- the tag has to be added here or not at all).
+  local function sayAs(rec, text)
+    return (rec.name or "RIVAL") .. ": " .. text
+  end
+
+  local function battleSequenceRows(rec, class)
     local rows = {}
-    if rec.beforeText then rows[#rows + 1] = { "show_text", rec.beforeText } end
+    if rec.beforeText then rows[#rows + 1] = { "show_text", sayAs(rec, rec.beforeText) } end
     rows[#rows + 1] = { "start_battle", "trainer", class, 1 }
     rows[#rows + 1] = { "jump_if_false", "ssn_no_win" }
     rows[#rows + 1] = { "set_flag", defeatFlagName(rec) }
-    if payReward and rec.reward and rec.reward > 0 then
-      rows[#rows + 1] = { "give_money", rec.reward }
-      rows[#rows + 1] = { "show_text",
-        ("You picked up\n%s's stash!\f$%d added to\nyour wallet."):format(rec.name or "The ghost", rec.reward) }
-    end
     rows[#rows + 1] = { "label", "ssn_no_win" }
-    if rec.afterText then rows[#rows + 1] = { "show_text", rec.afterText } end
+    if rec.afterText then rows[#rows + 1] = { "show_text", sayAs(rec, rec.afterText) } end
     return rows
   end
 
@@ -1444,7 +1447,8 @@ return function(mod)
     if repeatable then
       rows = battleSequenceRows(rec, class)
     else
-      local line = rec.afterText or (("%s has nothing\nmore to say."):format(rec.name or "RIVAL"))
+      local line = (rec.afterText and sayAs(rec, rec.afterText))
+        or (("%s has nothing\nmore to say."):format(rec.name or "RIVAL"))
       rows = { { "show_text", line } }
     end
     local ok, err = mod.world:queueScript(rows)
@@ -1630,7 +1634,7 @@ return function(mod)
       { "emote", entry.objIndex, "shock", 60 },
       { "move_npc_to", entry.objIndex, tx, ty },
     }
-    for _, row in ipairs(battleSequenceRows(rec, class, true)) do rows[#rows + 1] = row end
+    for _, row in ipairs(battleSequenceRows(rec, class)) do rows[#rows + 1] = row end
 
     local pok, qok, qerr = pcall(function() return w:queueScript(rows) end)
     if pok and qok then
@@ -1656,7 +1660,7 @@ return function(mod)
   local function interactEngageUndefeated(game, w, rec, name, mapId, gx, gy, key)
     local class = injectTrainer(game, rec)  -- (re)inject in case the record changed
     if not class then engagedKey = key; return end
-    local rows = battleSequenceRows(rec, class, true)
+    local rows = battleSequenceRows(rec, class)
     local pok, qok, qerr = pcall(function() return w:queueScript(rows) end)
     if pok and qok then
       engagedKey = key
@@ -1831,11 +1835,6 @@ return function(mod)
       sprite     = sprite,
       pic        = pic,
       password   = password or "",
-      -- Snapshot semantics, same as party/position: whatever this save is
-      -- carrying RIGHT NOW, not re-read at battle time. Whoever beats this
-      -- ghost later gets this exact amount regardless of what the sender's
-      -- own balance does afterward.
-      reward     = sanitizeReward((game.save.money or 0) * MONEY_REWARD_PCT),
     }
     s.nextId = s.nextId + 1
     s.ghosts[#s.ghosts + 1] = rec
@@ -1844,10 +1843,10 @@ return function(mod)
     -- knows this save's current password without re-sending.
     s.passwords[origin] = rec.password
     markDirty()
-    log("captured ghost #%d '%s' at map=%s (%s,%s) party=%d dialogue=%s/%s sprite=%s password=%s reward=%d (replaced %d previous)",
+    log("captured ghost #%d '%s' at map=%s (%s,%s) party=%d dialogue=%s/%s sprite=%s password=%s (replaced %d previous)",
       rec.id, rec.name, tostring(rec.mapId), tostring(rec.x), tostring(rec.y), #rec.party,
       tostring(rec.beforeText ~= nil), tostring(rec.afterText ~= nil), tostring(sprite),
-      tostring(rec.password ~= ""), rec.reward, replaced)
+      tostring(rec.password ~= ""), replaced)
     startOnlineUpload(game, rec)  -- no-op if OFFLINE MODE is on; async either way
     local msg = replaced > 0
       and "Your old ghost was\nrecalled.\f%s now waits\nhere for other\nworlds to find."
