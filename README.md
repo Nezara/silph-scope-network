@@ -23,7 +23,6 @@ Then: *"Add an after-battle line too?"* (default "No")
 
    **Then your ghost is sent online** 
 
-## Your "GHOST" will attempt to be sent to the server that others can see and interreact with as a hostile enemy trainer. 
 
 ## 2. ONLINE PASSWORD
 
