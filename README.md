@@ -23,90 +23,52 @@ The regular mod options menu still has four settings of its own: **GHOST
 COLLISION**, **REPEATABLE GHOST BATTLES**, **ONLINE GHOST COUNT**, and
 **OFFLINE MODE** — see the Options section below.
 
-## GHOST TYPE
-
-Pick this from the SILPH NET menu *before* you SEND GHOST — it decides which
-flavor your next send is. **You only ever have one ghost out at a time**,
-regardless of type — sending a new one (of either type) always replaces
-whatever this save currently has out there.
-
-### PokeTrainer (default)
-
-The original mode: sends your current party. Whoever finds it gets ambushed
-(sight-triggered) or can walk up and interact with it, and fights your team.
-Beating it pays out money exactly like a real trainer battle would for
-whichever **GHOST SPRITE** class it's wearing.
-
-### Friendly
-
-No battle at all. A plain NPC of yourself, standing where you sent it — walk
-up and interact to talk to it. No party is captured (you can send one with
-an empty box). You can:
-
-- Leave a **greeting line** and a separate **return-visit line** — the
-  greeting shows the first time any given save talks to it, the return line
-  every time after that (per receiving save — someone else's save meeting it
-  for the first time still gets the greeting).
-- Optionally **leave one item**, picked from your own bag (no key items, no
-  HMs — TMs are allowed) and a quantity you choose. It's deducted from your
-  bag the moment you pick it, at send time. Each *receiving* save gets one
-  copy of it, once, the first time they successfully talk to your ghost — if
-  their bag is full at that moment, the visit doesn't "complete," so they can
-  come back once they've made room instead of losing the gift.
-
-A Friendly ghost is never subject to **MODE**'s level filtering (it has no
-party/levels for that to mean anything about), and is allowed in towns and
-cities in addition to everywhere a PokeTrainer ghost can go — see "Where you
-can SEND a ghost from" below.
-
-## MODE (formerly a plain LEVEL PROTECTION toggle)
-
-Controls which downloaded **PokeTrainer** ghosts you actually see (Friendly
+## MODE
+Controls how Ghosts appear in your world(Friendly
 ghosts are never affected):
 
-- **LEVEL/ZONE** (default) — hides any ghost whose team is well above the
-  area you're currently in, read from the game's own wild-encounter and
-  trainer data (no hand-maintained table, so it's exact and self-corrects if
-  anything patches encounters). A couple of areas get extra leeway: the
-  final approach to Victory Road is exempt from the cap entirely, and the
-  handful of mid-game routes connecting Celadon/Fuchsia/Saffron/Cinnabar
-  (tackleable in almost any order) get a wider margin, so revisiting one
-  "out of order" after leveling up elsewhere doesn't lock you out.
-- **SCALE TO PLAYER** — see every ghost regardless of area, but each one's
-  party levels are set to match your own party's average right before the
-  fight. Move sets don't scale with it — a scaled-up mon can still only know
+- **LEVEL/ZONE** (default)
+   - Player will only see ghosts that of appropriate level for the game region they are in.
+   - final approach to Victory Road is exempt from the cap entirely. 
+     
+- **SCALE TO PLAYER** —
+- see every ghost regardless of area, but now ghosts scale to recieving players level.
+-  Move sets don't scale with it — a scaled-up mon can still only know
   what it was actually sent with — that's a known, accepted tradeoff for an
   opt-in mode.
-- **OFF** — no filtering, no scaling, ghosts exactly as sent. The escape
-  hatch if you specifically want a real fight against an overleveled team in
+
+- **OFF** — no filtering, no scaling, ghosts exactly as sent. available if you want the world to be a risky place with battles of random levels. 
   an early area.
 
 If your own PokeTrainer team is above the LEVEL/ZONE cap for wherever you're
 sending from, SEND GHOST tells you the actual cap number and asks "send it
 anyway?" before doing anything else — declining cancels the send cleanly.
 
-## Beating a ghost pays out
+## SEND GHOST 
 
-A PokeTrainer ghost battle pays out just like a normal trainer battle: beat
-it and you get money for winning, same as fighting any other trainer in the
-game. The amount depends on which **GHOST SPRITE** the sender picked — under
-the hood, a ghost pays out exactly what a real trainer of that class would
-(a Youngster's ghost is a small win, a Gym Leader's or Elite Four member's is
-a bigger one).
+**Location check.** Fails immediately with "Unable to send ghost.
+   Invalid location." if you're not somewhere sending is allowed for your
+   current **GHOST** (see "Where you can SEND a ghost from" below) —
+   nothing else is asked until you move somewhere valid.
 
-## ONLINE PASSWORD
+    **"Include dialogue with this ghost?"**
+   - **No** → skips straight to step 4 (Friendly) or step 5 (PokeTrainer),
+     with no dialogue at all. A downloader gets the default line
+     (something like "Trainer has nothing more to say.") when there's
+     nothing custom to fall back on.
+   - **Yes** → type your first line (capped at 48 characters). What it's
+     called depends on GHOST TYPE:
+     - PokeTrainer: **BEFORE-BATTLE LINE** — shown right before the fight.
+    
+  You'll see an immediate confirmation ("Your ghost was sent to
+   the void!" for a first send, or "Your old ghost was recalled" if this
+   replaced one you already had out). the  upload to the server happens in
+   the background right after — a second  "Ghost uploaded online!" message
+   pops up once that finishes, so you'll  always get two messages for an online send, one for the other.
 
-**Password (private pools)**: at SEND GHOST time, after the dialogue
-prompts, you're asked *"Set an online password?"* (default **NO**, keeps
-whatever password this save last set — starts blank/public if you've never
-set one). Say yes to type a room code. You can also set/clear it directly
-from SILPH NET's own **ONLINE PASSWORD** row, without sending a ghost.
-
-- A ghost sent with **no password** is public — every downloader can see it,
-  regardless of their own password.
-- A ghost sent **with a password** is only visible to downloaders whose own
-  currently-remembered password matches it exactly — a private pool for a
-  friend group or a streamer's run, separate from the public one.
+**Remember: sending always replaces whatever ghost you currently have
+out**, PokeTrainer or Friendly, regardless of which type the new one is —
+you can only ever have one ghost active per save.
 
 ## GHOST REPORT
 
@@ -132,19 +94,35 @@ distinct visitors have talked to it:
 - **The tally resets every time you send a new ghost.** It belongs to the
   ghost that's currently out, not to you forever, so a fresh send always
   starts at zero.
+  
+## GHOST TYPE
 
-## Options (mod options menu)
+### PokeTrainer (default)
 
-- **GHOST COLLISION** — ON (default): ghost is solid, blocks movement like
-  any trainer. OFF: non-solid, so it can never wall you into a softlock.
-- **REPEATABLE GHOST BATTLES** — OFF (default), PokeTrainer only: a defeated
-  ghost only replays dialogue on interact. ON: interacting with a defeated
-  ghost starts a full rematch instead.
-- **ONLINE GHOST COUNT** — 1-5, default 3. How many ghosts to request from
-  the server per map (only matters unless OFFLINE MODE is on).
-- **OFFLINE MODE** — OFF (default), meaning ONLINE MODE is active out of the
-  box. Turn OFFLINE MODE **ON** to opt a save out entirely and keep it
-  local-only (no server upload, no download) — see below.
+The original mode: sends your current party. Whoever finds it gets ambushed
+(sight-triggered) or can walk up and interact with it, and fights your team.
+Beating it pays out money exactly like a real trainer battle would.
+
+### Friendly
+
+No battle at all. A plain NPC of yourself, standing where you sent it — walk
+up and interact to talk to it. No party is captured (you can send one with
+an empty box). You can:
+
+- Leave a **greeting line** and a separate **return-visit line** — the
+  greeting shows the first time any given save talks to it, the return line
+  every time after that (per receiving save — someone else's save meeting it
+  for the first time still gets the greeting).
+- Optionally **leave one item**, picked from your own bag  and a quantity you choose. It's deducted from your
+  bag the moment you pick it, at send time. Each *receiving* save gets one
+  copy of it, once, the first time they successfully talk to your ghost — if
+  their bag is full at that moment, the visit doesn't "complete," so they can
+  come back once they've made room instead of losing the gift.
+
+A Friendly ghost is never subject to **MODE**'s level filtering (it has no
+party/levels for that to mean anything about), and is allowed in towns and
+cities in addition to everywhere a PokeTrainer ghost can go — see "Where you
+can SEND a ghost from" below.
 
 **GHOST SPRITE** and **MODE**/**GHOST TYPE** moved out of this menu and into
 the SILPH NET hub itself (see above) — pick which overworld sprite + battle
@@ -159,6 +137,39 @@ rule as party/position, which are also only captured at SEND GHOST time).
   starts — that's how the original game does it).
 - **Gold (Beta)**: 4 looks — Beauty, Rocket Grunt, Kimono Girl, plus the
   default Chris lookalike.
+
+
+## ONLINE PASSWORD
+
+**Password (private pools)**: at SEND GHOST time, after the dialogue
+prompts, you're asked *"Set an online password?"* (default **NO**, keeps
+whatever password this save last set — starts blank/public if you've never
+set one). Say yes to type a room code. You can also set/clear it directly
+from SILPH NET's own **ONLINE PASSWORD** row, without sending a ghost.
+
+- A ghost sent with **no password** is public — every downloader can see it,
+  regardless of their own password.
+- A ghost sent **with a password** is only visible to downloaders whose own
+  currently-remembered password matches it exactly — a private pool for a
+  friend group or a streamer's run, separate from the public one.
+
+
+
+
+
+## Options (mod options menu)
+
+- **GHOST COLLISION** — ON (default): ghost is solid, blocks movement like
+  any trainer. OFF: non-solid, so it can never wall you into a softlock.
+- **REPEATABLE GHOST BATTLES** — OFF (default), PokeTrainer only: a defeated
+  ghost only replays dialogue on interact. ON: interacting with a defeated
+  ghost starts a full rematch instead.
+- **ONLINE GHOST COUNT** — 1-5, default 3. How many ghosts to request from
+  the server per map (only matters unless OFFLINE MODE is on).
+- **OFFLINE MODE** — OFF (default), meaning ONLINE MODE is active out of the
+  box. Turn OFFLINE MODE **ON** to opt a save out entirely and keep it
+  local-only (no server upload, no download) — see below.
+
 
 **Sending is one-ghost-per-save.** SEND GHOST always replaces whatever this
 save already has out there — it doesn't accumulate. The new ghost has a
@@ -188,26 +199,6 @@ never a regular building interior (houses, marts, Pokemon Centers, gyms).
 **Blocked either way**: houses, marts, Pokémon Centers, gyms, Elite Four
 rooms, Oak's Lab, the Fighting Dojo, gates, and similar small interiors.
 
-## Online mode (on by default)
-
-A small server (Cloudflare Worker + D1) that ghosts additionally upload to
-and download from, layered on top of the local shared-file system (which
-keeps working exactly as before, regardless of this setting — local ghosts
-never leave the machine either way). **ONLINE MODE is on by default.**
-
-**OFFLINE MODE** (mod option, OFF by default) is the opt-out: turn it **ON**
-to keep a save entirely local — useful for sending your player character
-across your own saves. Got multiple playthroughs? Now you can battle your
-own different teams against each other.
-
-**Upload**: happens automatically whenever you **SEND GHOST**, unless
-OFFLINE MODE is on, using the exact same captured position/party/dialogue as
-the local send — no separate action. Fire-and-forget: you get your normal
-"ghost sent" confirmation immediately, and the upload itself completes in
-the background — once the server confirms it, you'll see a second "Ghost
-uploaded online!" message pop up. With OFFLINE MODE on, the send
-confirmation says so explicitly, so it's never ambiguous whether a ghost
-went anywhere.
 
 **Download**: whenever you enter a map, unless OFFLINE MODE is on, the mod
 asks the server for up to **ONLINE GHOST COUNT** ghosts on your current map
