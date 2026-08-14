@@ -13,7 +13,18 @@ any code yet — check current `main.lua`/`worker.js` before assuming otherwise.
 
 ## Same-tile ghost collision
 
-**DESIGNED.** Two *different* senders uploading at the same `mapId`+`x`+`y`
+**BUILT (2026-08-14), not yet live-tested. Maintainer's call: 50/50 only,
+not reposition-to-a-nearby-tile.** The relocation alternative was floated
+and rejected -- it needs a reliable "is this adjacent tile actually walkable
+terrain" check (not just "is another entity standing on it," which is all
+`Collision.occupied` gives), an unconfirmed piece of engine surface on
+either generation, and it would also change the server contract back to
+"return both, let the client sort it out" instead of "pick one winner" --
+more moving parts for a collision that's rare given today's ghost density.
+If it ever needs revisiting, that's the upgrade path; the 50/50 below ships
+first because it's fully designed against confirmed APIs.
+
+Two *different* senders uploading at the same `mapId`+`x`+`y`
 currently both spawn on one square and visually stack.
 
 Not the same bug as the old local/online double-battle (that was one sender
@@ -23,6 +34,10 @@ identity per map; it has no way to catch two distinct senders who happen to
 share coordinates.
 
 Decision: **randomly pick one and show that.**
+
+Shipped exactly as designed below — both halves built and deployed
+2026-08-14 (server live, client synced to the local install, not yet
+live-tested end-to-end).
 
 - **Server side** — `/nearby` gains a positional partition:
   ```sql
@@ -58,8 +73,30 @@ Decision: **randomly pick one and show that.**
 
 ## Water ghosts use the surf sprite
 
-**PARKED** with the maintainer's OK — smallest item in this file, ready to
-build whenever.
+**ABANDONED (2026-08-13), reverted.** Tried two approaches, both live-tested
+by the maintainer and rejected:
+
+1. Replace the ghost's sprite outright with the surf blob (`SPRITE_SEEL`) on
+   a water tile. Rejected: erases whichever GHOST SPRITE the sender picked,
+   the ghost is just an anonymous rider.
+2. Layer a second, decorative "mount" NPC (the surf blob) UNDER the ghost's
+   own unchanged sprite on the same tile, mount spawned first hoping the
+   engine's per-frame Y-sort would keep it underneath. **Did not work in
+   practice** — the flagged caveat (two entities on one cell have identical
+   pixel Y, and the sort has no documented tie-break except a Pikachu-
+   follower special case) turned out to matter; confirmed live, not just
+   theorized.
+
+**Decided final behavior: do nothing special.** A ghost sent from/spawned on
+a water tile just displays its normal GHOST SPRITE, standing on the water,
+same as any other tile. Simpler, no extra NPC, no sort-order gamble. A real
+composited sprite (bake the sender's look onto a mount graphic at spawn time
+via a LÖVE canvas) would be the only way to do this properly, but is a much
+bigger job and not planned unless separately requested.
+
+The temporary "SPAWN TEST GHOST" Start Menu debug tool (added to preview
+this) was removed along with it — it had no purpose beyond eyeballing this
+feature.
 
 A ghost sent while surfing currently spawns as a trainer standing on open
 water. Sea routes (e.g. Route 19/20/21) are already sendable, so this is
@@ -107,8 +144,28 @@ Open, unresolved details:
 
 ## Level/zone protection (anti-smurf filter)
 
-**DESIGNED.** Goal: stop smurfing — high-level players parking level-100
-teams as unbeatable "ghosts" in early-game areas.
+**BUILT (2026-08-14), not yet live-tested.** Goal: stop smurfing —
+high-level players parking level-100 teams as unbeatable "ghosts" in
+early-game areas. Gen 1 only for now — `zoneLevel` always returns nil on
+Gold, so GHOST LEVELING's REGION LOCK mode is a harmless no-op there until
+Gen 2's equivalent wild/trainer data shapes get the same research pass.
+
+Follow-up refinements past the original design below, both maintainer calls:
+- **ROUTE_23 exempt** (`LEVEL_PROTECTION_EXEMPT_MAPS`) — the final approach
+  to Victory Road/Elite Four, where legitimate late-game teams cluster and
+  team power swings more with moveset/skill than the handful of levels a cap
+  would gatekeep.
+- **Branch-route leeway** (`LEVEL_PROTECTION_BRANCH_MAPS`, +8 flat margin
+  replacing the default +2, not stacked) — Routes 7/8/16/17/18/19/20, the
+  connective routes between Celadon/Fuchsia/Saffron/Cinnabar (tackleable in
+  almost any order once you have the right HMs), so looping back through one
+  "out of order" after leveling up elsewhere doesn't quietly hide a player's
+  ghost. Measured against real data: zone levels there run 22 (Route 7) to
+  40 (Route 19/20) on their own, before margin — a judgment call, not tuned
+  live yet.
+- The send-time sender warning (item 1 below) now fires **first**, before
+  any dialogue prompts, with the actual cap number and a yes/no "send it
+  anyway?" gate instead of a footnote after the fact.
 
 ### Key research finding: no external wiki/database needed
 
@@ -153,10 +210,10 @@ experience worse for the people the feature exists to protect. Any future
 change to this formula needs a fresh, explicit ask — this isn't an
 oversight to "fix" on sight.
 
-### Rejected alternative: level-scaling
+### Level-scaling: originally rejected, later BUILT as an opt-in mode
 
-The other option that was floated (scale a ghost's Pokémon down to match
-the viewer's average level) was rejected outright:
+The option floated early on (scale a ghost's Pokémon to match the viewer's
+own level) was rejected outright at design time:
 
 - Produces impossible combinations — a level-5 Blastoise, for instance.
 - Moves don't scale with level, so a downscaled mon can still carry a move
@@ -166,10 +223,17 @@ the viewer's average level) was rejected outright:
   was never actually sent to fight, since the fight itself wasn't the team
   they built.
 
-Its one real merit — keeping content visible when the ghost population is
-tiny — could come back later as a third `type="choice"` mode
-(`OFF / FILTER / SCALE`) if emptiness turns out to actually bite. Not
-planned unless that happens.
+**Built anyway on 2026-08-14, maintainer's explicit call**, as the third
+`GHOST LEVELING` choice alongside REGION LOCK (the filter above) and OFF:
+**SCALE TO ME**. Every downloaded ghost's mons get leveled to the viewer's
+own party average (species/moves/dvs untouched) right before the fight, on
+the viewer's own client — never mutates the stored ghost record, so a
+different viewer with REGION LOCK or OFF still sees the sender's real team.
+The move-power and win/loss-record caveats above are known and accepted for
+this opt-in mode specifically ("I know move power does not scale, but its a
+choice people can make") — they were never solved, just judged acceptable
+once the player is choosing it deliberately rather than having it forced on
+by default. REGION LOCK stays the default; SCALE and OFF are both opt-in.
 
 ### Enforcement point: server-side, mirroring `password`
 
@@ -188,15 +252,14 @@ server. So:
   and the requester's own cap only gates what *they* see — lying about your
   own cap gains a smurf nothing.
 
-### Two details flagged, not yet resolved
+### Two details flagged at design time — both RESOLVED in the build
 
 1. **Warn the sender at send time** when their team exceeds the *local*
-   zone cap for the tile they're sending from ("players with LEVEL
-   PROTECTION on won't see this ghost"). Without this, a legitimately
-   overleveled sender gets zero feedback that their ghost is invisible to
-   most players — the same silent-no-op trap already hit twice before (see
-   the online-mode-default and upload-failure history in memory/CHANGELOG).
+   zone cap for the tile they're sending from. Done: fires FIRST in the
+   SEND GHOST sequence (before any dialogue prompts), names the actual cap
+   level, and gates the send behind a yes/no "send it anyway?" choice
+   rather than a silent footnote.
 2. **Fallback for sendable maps with neither wild nor trainer data.**
-   Inherit zone level from connected maps — reuse the neighbor list
-   `nearbyMapIds` already computes for the `/nearby` map-connection query,
-   rather than building a second one.
+   Done: `zoneLevel` inherits the max across directly-connected neighbors
+   (via `nearbyMapIds`, the same list `/nearby` already builds) when a map
+   has no wild/trainer data of its own.

@@ -197,6 +197,74 @@ local GHOST_SPRITES = {
 local SPRITE_PAIR_OK = {}
 for _, s in ipairs(GHOST_SPRITES) do SPRITE_PAIR_OK[s.sprite .. "|" .. s.pic] = true end
 
+-- =========================================================================
+-- GEN 2 (Pokemon Gold) DETECTION -- GameVersion is a process-global set at
+-- boot from the launcher's column choice, before ANY mod loads ("zero
+-- requires, loads during love.conf" per its own header) -- so this is safe
+-- to read right here at module load, no game object needed. generation()
+-- returns 1 (Red/Blue/Yellow) or 2 (Gold); everything below that differs
+-- between them branches on IS_GEN2, with the Gen 1 branch always matching
+-- this mod's existing, already-shipped behavior unchanged.
+--
+-- Design + live validation: see the silphscope-gen2-scope memory and the
+-- throwaway ssn_gen2_spike mod (2026-08-13) this port is built from. The
+-- engine's OWN native sight-trainer mechanic (a map object carrying a
+-- `trainer` struct + `sight` range) drives GHOST SIGHT for free on Gold --
+-- World:checkTrainerBattle walks live npcs and runs the cart's own
+-- emote/approach/dialogue/battle/after-text script, so there is no
+-- Gen 1-style hand-rolled move_npc_to/queueScript sequence on this side.
+-- =========================================================================
+local GameVersion
+do
+  local ok, gv = pcall(require, "src.core.GameVersion")
+  if ok then GameVersion = gv end
+end
+local GENERATION = 1
+do
+  local ok, gen = pcall(function() return GameVersion and GameVersion.generation() end)
+  if ok and gen then GENERATION = gen end
+end
+local IS_GEN2 = GENERATION == 2
+local RECORD_GAME = IS_GEN2 and "gold" or "red"  -- travels as the server's `game` field
+
+-- CONFIRMED LIVE (2026-08-14, real player report + debug.log): on a Gen 2
+-- boot, a MOD's own `game.data.maps` is nil -- Gen2Compat.lua's own
+-- DATA_RENAMES table (sprites/maps/tilesets/text/encounters/palettes/icons/
+-- battle_anims all point at a gen2-prefixed field, e.g. maps -> gen2Maps)
+-- describes an INTERNAL engine proxy, not something that reaches a mod's
+-- own `game.data` reference as handed to it -- a mod has to do that rename
+-- itself. `trainers` is NOT in that rename list, so `game.data.trainers`
+-- (used by gen2InjectGhost/gen2ClassByIndexTable) is unaffected. Only
+-- `maps` and `encounters` are actually read anywhere in this mod's Gen 2
+-- code today; add more pairs here if a future feature needs
+-- sprites/tilesets/text/palettes/icons/battle_anims too.
+local GEN2_DATA_RENAMES = { maps = "gen2Maps", encounters = "gen2Encounters" }
+local function dataTable(game, key)
+  local data = game and game.data
+  if not data then return nil end
+  if IS_GEN2 and GEN2_DATA_RENAMES[key] then
+    return data[GEN2_DATA_RENAMES[key]] or data[key]
+  end
+  return data[key]
+end
+
+-- Gold has NO `pic` field on trainer records -- portraits resolve from
+-- menu_gfx.trainerPics[classId] by CLASS CONSTANT instead, so a Gen 2
+-- "look" is (overworld sprite, class id) rather than (sprite, art path).
+-- Reuses rec.pic to carry the class id (never both generations at once, so
+-- no field-name collision) -- see selectedSprite/spawnOneGen2Ghost below.
+-- All 4 verified `walker = true` against gold/data/generated/sprites.lua;
+-- classes verified to exist against gold/data/generated/trainers.lua.
+local GEN2_PLAYER_SPRITE = "SPRITE_CHRIS"
+local GEN2_PLAYER_CLASS  = "RED"  -- Gold has no player portrait; Red's is the lookalike, same logic as PLAYER_PIC above
+local GEN2_GHOST_SPRITES = {
+  { key = "sprite_beauty", gender = "F", label = "BEAUTY (F)",       sprite = "SPRITE_BEAUTY",      classId = "BEAUTY" },
+  { key = "sprite_rocket", gender = "M", label = "ROCKET GRUNT (M)", sprite = "SPRITE_ROCKET",      classId = "GRUNTM" },
+  { key = "sprite_kimono", gender = "F", label = "KIMONO GIRL (F)",  sprite = "SPRITE_KIMONO_GIRL", classId = "KIMONO_GIRL" },
+}
+local GEN2_SPRITE_PAIR_OK = {}
+for _, s in ipairs(GEN2_GHOST_SPRITES) do GEN2_SPRITE_PAIR_OK[s.sprite .. "|" .. s.classId] = true end
+
 -- Optional before/after-battle dialogue, authored by the SENDING player at
 -- SEND GHOST time (see sendSelf). Comparable to a normal NPC's line length --
 -- vanilla trainer battle lines in this engine's own text data commonly run
@@ -316,6 +384,29 @@ do
   })
 end
 
+-- =========================================================================
+-- Where a FRIENDLY ghost (no battle -- see GEN_TYPE below) is allowed to be
+-- sent from: everywhere a PokeTrainer ghost can (SEND_ALLOWED_MAPS above)
+-- PLUS every town/city exterior, since a friendly greeter never ambushes
+-- anyone and towns are arguably where the concept fits best. Still not
+-- regular building interiors (houses, marts, Pokemon Centers, gyms) --
+-- maintainer's explicit call: "allow towns and cities, but not indoors."
+--
+-- All 10 town/city ids below verified against red/data/generated/maps.lua
+-- directly (not guessed from name) -- every one carries tileset
+-- "OVERWORLD", the same outdoor tileset the allowed routes already use.
+-- INDIGO_PLATEAU is deliberately not repeated here -- it's already in
+-- SEND_ALLOWED_MAPS's own outdoor-routes block.
+-- =========================================================================
+local FRIENDLY_TOWN_MAPS = {
+  "PALLET_TOWN", "VIRIDIAN_CITY", "PEWTER_CITY", "CERULEAN_CITY",
+  "LAVENDER_TOWN", "VERMILION_CITY", "CELADON_CITY", "FUCHSIA_CITY",
+  "SAFFRON_CITY", "CINNABAR_ISLAND",
+}
+local FRIENDLY_ALLOWED_MAPS = {}
+for id in pairs(SEND_ALLOWED_MAPS) do FRIENDLY_ALLOWED_MAPS[id] = true end
+for _, id in ipairs(FRIENDLY_TOWN_MAPS) do FRIENDLY_ALLOWED_MAPS[id] = true end
+
 return function(mod)
   -- IMPORTANT (found live, v0.8.0 test): mod.options:define() REPLACES the
   -- whole option set on each call, it does not add to what a previous call
@@ -327,24 +418,17 @@ return function(mod)
   -- "number"` (with min/max/step) DOES work in this engine -- ONLINE GHOST
   -- COUNT rendered and worked fine, it just took the others down with it as
   -- a side effect of the two-call split, not because the type was rejected.
-  -- GHOST SPRITE: mod.options DOES support a type="choice" dropdown
-  -- (choices = {{label,value}, ...}, cycled in place with left/right, no
-  -- separate menu to open) -- confirmed from the engine's own bundled
-  -- example_dexnav mod (mods/examples/example_dexnav/main.lua:
-  -- `mod.options:define({{key="sort", type="choice", choices={{"DEX NO.",
-  -- "dex"},{"NAME","name"}}}})`). This corrects an earlier belief in this
-  -- project that only toggle/number worked (which is why GHOST SPRITE was
-  -- modeled as 6 mutually-exclusive toggles, then briefly a dedicated
-  -- ListMenu Start Menu screen, before landing here as the lighter-weight
-  -- choice). "" (RED (DEFAULT)) is always the first choice.
-  local function ghostSpriteChoices()
-    local choices = { { "RED (DEFAULT)", "" } }
-    for _, s in ipairs(GHOST_SPRITES) do
-      choices[#choices + 1] = { s.label, s.key }
-    end
-    return choices
-  end
-
+  -- GHOST SPRITE and GHOST LEVELING used to live here as mod.options
+  -- type="choice" dropdowns -- moved (2026-08-14, maintainer's call) into
+  -- the new SILPH SCOPE NET hub menu instead (see openHub/openSpritePicker/
+  -- openConnectionModePicker below), so their state moves with them: out of
+  -- mod.options and into this mod's own storage.spriteKey/.connectionMode
+  -- (loadStorage/markDirty, same file ghosts.lua already uses). Old
+  -- mod.options values for those two keys are simply orphaned now, same
+  -- precedent as the online_mode -> offline_mode rename. What's LEFT here
+  -- are the four settings that stay on the standard options menu, in the
+  -- maintainer's requested order (collision, repeatable, online count,
+  -- offline mode last).
   local ONLINE_COUNT_SUPPORTED = pcall(function()
     local rows = {
       -- ON (default) = ghost is a normal solid NPC (blocks movement, like
@@ -366,20 +450,15 @@ return function(mod)
       -- they're always fought via GHOST SIGHT, and this option only changes
       -- what happens AFTER a win.
       { key = "ghost_repeatable", label = "REPEATABLE GHOST BATTLES", type = "toggle", default = false },
+      -- How many online ghosts to request per map, 1-5. type="number" IS
+      -- confirmed working in this engine (min/max/step).
+      { key = "online_ghost_count", label = "ONLINE GHOST COUNT", type = "number",
+        min = 1, max = 5, step = 1, default = ONLINE_DEFAULT_COUNT },
       -- OFF (default) = ONLINE MODE is active: your sent ghost also
       -- uploads to a small server, and other players' ghosts near your
       -- current map get downloaded too. ON = opt this save out entirely,
       -- back to local shared-file ghosts only (no uploads, no downloads).
       { key = "offline_mode", label = "OFFLINE MODE", type = "toggle", default = false },
-      -- How many online ghosts to request per map, 1-5. See the big comment
-      -- above -- type="number" IS confirmed working in this engine.
-      { key = "online_ghost_count", label = "ONLINE GHOST COUNT", type = "number",
-        min = 1, max = 5, step = 1, default = ONLINE_DEFAULT_COUNT },
-      -- Which overworld sprite + battle art your NEXT sent ghost uses.
-      -- Read fresh at SEND GHOST time (see selectedSprite below), so
-      -- changing this before a send takes effect immediately.
-      { key = "ghost_sprite", label = "GHOST SPRITE", type = "choice",
-        default = "", choices = ghostSpriteChoices() },
     }
     mod.options:define(rows)
   end)
@@ -398,27 +477,20 @@ return function(mod)
     end)
   end
 
-  -- Read fresh every time (not cached), so a choice made in the options menu
-  -- is honored by the very next SEND GHOST with no reload needed. Falls back
-  -- to PLAYER_SPRITE/PLAYER_PIC (Red) for "" (the default) or any value that
-  -- doesn't match a known key (e.g. the fallback options registration above
-  -- never defined "ghost_sprite" at all).
-  local function selectedSprite()
-    local ok, key = pcall(function() return mod.options:get("ghost_sprite") end)
-    if ok and type(key) == "string" and key ~= "" then
-      for _, s in ipairs(GHOST_SPRITES) do
-        if s.key == key then return s.sprite, s.pic end
-      end
-    end
-    return PLAYER_SPRITE, PLAYER_PIC
-  end
-
   local SaveData       = require("src.core.SaveData")
   local SaveSerializer = require("src.core.SaveSerializer")
   local TextBox        = require("src.render.TextBox")
   local ChoiceBox      = require("src.ui.ChoiceBox")
   local NamingScreen   = require("src.ui.NamingScreen")
+  local ListMenu       = require("src.ui.ListMenu")
+  local QuantityBox    = require("src.ui.QuantityBox")
   local Flags          = require("src.script.Flags")
+  -- src/inventory/Bag.lua -- confirmed generation-agnostic (Bag.add/remove/
+  -- order/capacity all key off the item's own `.pocket` field when present,
+  -- falling back to a single "ITEM" pocket when it's not, which is exactly
+  -- Gen 1's shape). Used by the FRIENDLY ghost type's gift-item flow --
+  -- Bag.add(save, id, qty, data) / Bag.remove(save, id, qty) / Bag.order(save).
+  local Bag            = require("src.inventory.Bag")
 
   -- Online mode's two engine internals: Fetch (async GET, src/net/Fetch.lua)
   -- and Json (src/link/Json.lua, used by the game's own update-checker to
@@ -505,6 +577,14 @@ return function(mod)
     -- disk simply won't have this key yet -- default it in rather than
     -- requiring every reader to guard against a missing table.
     s.passwords = type(s.passwords) == "table" and s.passwords or {}
+    -- connectionMode/spriteKey: GHOST LEVELING and GHOST SPRITE moved here
+    -- from mod.options (2026-08-14, the SILPH SCOPE NET hub menu rework) --
+    -- global settings, same scope mod.options always gave them (one shared
+    -- ghosts.lua across every save on the machine, not per-save).
+    s.connectionMode = (s.connectionMode == "scale" or s.connectionMode == "off")
+      and s.connectionMode or "filter"
+    s.spriteKey = type(s.spriteKey) == "string" and s.spriteKey or ""
+    s.ghostType = (s.ghostType == "friendly") and "friendly" or "trainer"
     return s
   end
 
@@ -519,6 +599,131 @@ return function(mod)
   end
 
   local function markDirty() dirty = true end
+
+  -- GHOST LEVELING mode -- read fresh everywhere (not cached), same
+  -- discipline mod.options reads always had, so a choice made in the hub
+  -- menu is honored by the very next spawn/battle with no reload needed.
+  -- Both generations' inject functions (injectTrainer, gen2InjectGhost) and
+  -- filterCapForMap/levelCapForMap call this.
+  local function ghostLevelMode()
+    local v = loadStorage().connectionMode
+    if v == "scale" or v == "off" then return v end
+    return "filter"
+  end
+  local function setConnectionMode(mode)
+    local s = loadStorage()
+    s.connectionMode = mode
+    markDirty()
+  end
+
+  -- Second return is a battle-art PATH on Gen 1, a trainer CLASS ID on Gen 2
+  -- (see the GEN 2 DETECTION comment near the top of the file) -- always
+  -- stored into rec.pic either way, since a save is only ever one
+  -- generation and the two meanings never mix.
+  local function selectedSprite()
+    local key = loadStorage().spriteKey
+    local list = IS_GEN2 and GEN2_GHOST_SPRITES or GHOST_SPRITES
+    if type(key) == "string" and key ~= "" then
+      for _, s in ipairs(list) do
+        if s.key == key then
+          return s.sprite, (IS_GEN2 and s.classId or s.pic)
+        end
+      end
+    end
+    if IS_GEN2 then return GEN2_PLAYER_SPRITE, GEN2_PLAYER_CLASS end
+    return PLAYER_SPRITE, PLAYER_PIC
+  end
+  local function setSpriteKey(key)
+    local s = loadStorage()
+    s.spriteKey = key
+    markDirty()
+  end
+
+  -- GHOST TYPE (2026-08-14 addition): which of the two send flows the next
+  -- SEND GHOST uses. Same storage-backed, read-fresh pattern as
+  -- connectionMode/spriteKey -- see their own comments.
+  --   trainer (default) -- the original behavior, unchanged: a battle
+  --     ghost with a captured party.
+  --   friendly -- no battle at all. A plain NPC of the sender (dialogue
+  --     only, no party captured) that can also hand a visiting save one
+  --     optional item, once, subtracted from the sender's own bag at send
+  --     time. See sendSelf/askLeaveItem/engageFriendlyGhost.
+  local function ghostTypeMode()
+    local v = loadStorage().ghostType
+    return v == "friendly" and "friendly" or "trainer"
+  end
+  local function setGhostType(v)
+    local s = loadStorage()
+    s.ghostType = v
+    markDirty()
+  end
+  local GHOST_TYPE_LABELS = { trainer = "TRAINER", friendly = "FRIEND" }
+  local function ghostTypeLabel()
+    return GHOST_TYPE_LABELS[ghostTypeMode()] or "TRAINER"
+  end
+
+  -- Which items a FRIENDLY ghost is allowed to leave: no key items, no HMs
+  -- (progression-critical -- excluded per the maintainer's explicit call,
+  -- inverted from an earlier draft that had TM/HM backwards). TMs ARE
+  -- allowed -- they're tradable through other in-game means already, so
+  -- there's nothing special being bypassed by gifting one.
+  --
+  -- HM ids use the SAME "HM_" prefix on BOTH generations (confirmed against
+  -- both red/data/generated/items.lua and gold/data/generated/items.lua --
+  -- e.g. HM_CUT, HM_SURF exist verbatim on both), so a plain prefix check
+  -- is generation-agnostic and doesn't need a machine/pocket lookup at all.
+  -- Key items differ by generation and DO need their own field: Gen 1 items
+  -- carry a plain `keyItem = true` boolean; Gen 2 has no such field but
+  -- instead sorts every item into a `.pocket` ("ITEM"/"BALL"/"KEY_ITEM"/
+  -- "TM_HM"), so `pocket == "KEY_ITEM"` is the Gen 2 equivalent check.
+  -- Checking both conditions unconditionally is safe on either generation:
+  -- each field is simply absent/nil on the generation that doesn't use it.
+  local function isGiftableItem(id, item)
+    if type(id) ~= "string" or id:match("^HM_") then return false end
+    if not item then return false end
+    if item.keyItem == true then return false end
+    if item.pocket == "KEY_ITEM" then return false end
+    return true
+  end
+
+  -- Display labels for the hub menu's own rows (see hubItems below).
+  --
+  -- ListMenu draws a row's `label` at a fixed left position and its `right`
+  -- right-aligned with no wrap (confirmed from src/ui/ListMenu.lua:draw) --
+  -- combined, an 8px-glyph 160px-wide GB screen gives roughly 17 characters
+  -- before they start overlapping. "CONNECTION MODE" (15) + "LEVEL/ZONE"
+  -- (10) alone was 25 -- badly squished, which is what prompted this.
+  -- fitRight truncates the live VALUE, not the row's own fixed label (the
+  -- label is what tells you what the row even is), and is generic so any
+  -- future summary row can reuse it rather than hand-picking a length.
+  local HUB_ROW_BUDGET = 17
+  local function fitRight(label, right)
+    local room = HUB_ROW_BUDGET - #label - 1  -- -1 for a minimum one-space gap
+    if room < 1 then return "" end
+    if #right <= room then return right end
+    return right:sub(1, room)
+  end
+
+  local CONNECTION_MODE_LABELS = { filter = "ZONE", scale = "SCALE", off = "OFF" }
+  local function connectionModeLabel()
+    return CONNECTION_MODE_LABELS[ghostLevelMode()] or "ZONE"
+  end
+  local function spriteLabel()
+    local key = loadStorage().spriteKey
+    local label
+    if type(key) == "string" and key ~= "" then
+      for _, s in ipairs(IS_GEN2 and GEN2_GHOST_SPRITES or GHOST_SPRITES) do
+        if s.key == key then label = s.label; break end
+      end
+    end
+    label = label or (IS_GEN2 and "CHRIS" or "RED")
+    -- Strip the " (M)"/" (F)" gender suffix for the hub's own summary --
+    -- the full label (gender included) still shows inside the sprite
+    -- picker itself, which has a whole screen of width free; fitRight
+    -- below is the final safety net for the handful of names still too
+    -- long after this (e.g. "RIVAL - CHAMP").
+    return (label:gsub("%s*%([MF]%)$", ""))
+  end
 
   local function flushStorage()
     if not (dirty and storage) then return end
@@ -745,6 +950,39 @@ return function(mod)
     return ok and result == true
   end
 
+  -- Same pattern, for a FRIENDLY ghost: per-receiving-save "have I met this
+  -- ghost before" state -- gates which of the two dialogue lines shows AND
+  -- (when a gift item is set) whether the item has already been handed to
+  -- THIS save. One flag does both jobs: the maintainer's decision was a
+  -- ONE-TIME gift tracked per receiving save, and "have we met" is exactly
+  -- that same one-time transition, so a second flag would just be
+  -- redundant bookkeeping for the same fact.
+  local function friendlyMetFlagName(rec)
+    return "SSN_MET_" .. tostring(rec.origin) .. "_" .. tostring(rec.id)
+  end
+  local function hasMetFriendly(game, rec)
+    local sv = game and game.save
+    if not sv then return false end
+    local ok, result = pcall(function() return Flags.get(sv, friendlyMetFlagName(rec)) end)
+    return ok and result == true
+  end
+
+  -- The viewer's own party's average level, rounded and clamped to a valid
+  -- level range -- the target SCALE TO ME sets every downloaded ghost mon
+  -- to. nil if there's no readable party (never happens in practice, since
+  -- both generations require a non-empty party before SEND GHOST even
+  -- opens, but a downloaded ghost can be fought at any time).
+  local function viewerAverageLevel(game)
+    local party = game and game.save and game.save.party
+    if type(party) ~= "table" or #party == 0 then return nil end
+    local sum, n = 0, 0
+    for _, mon in ipairs(party) do
+      if type(mon.level) == "number" then sum = sum + mon.level; n = n + 1 end
+    end
+    if n == 0 then return nil end
+    return math.max(1, math.min(100, math.floor(sum / n + 0.5)))
+  end
+
   -- Money reward, entirely in-game: no snapshot, no server round-trip. Every
   -- GHOST_SPRITES pic already corresponds 1:1 to a REAL vanilla trainer
   -- class (that's how the sprite/pic pairs were mined in the first place --
@@ -787,9 +1025,27 @@ return function(mod)
   -- honored when present (confirmed from source). DVs are NOT: the same
   -- function unconditionally does `mon.dvs = trainerDvs` afterward, so exact
   -- IVs can't be preserved this way -- only species/level/moves are exact.
+  -- class -> rec, refreshed every injectTrainer call. Lets the battle.started
+  -- listener below (which only gets the trainer CLASS id from the engine's
+  -- event payload, not our own record) find the sender's original party
+  -- again -- specifically for nicknames, which Pokemon.new/BattleState.
+  -- newTrainer have no field for at all (confirmed from source: neither
+  -- reads a nickname off a party slot), so they can't be set at construction
+  -- time and have to be patched onto the already-built enemyParty instead.
+  local injectedRecs = {}
+
   local function injectTrainer(game, rec)
     if not (game and game.data and game.data.trainers) then return nil end
     local class = ghostTrainerClass(rec)
+    injectedRecs[class] = rec
+    -- SCALE TO ME: every mon's level becomes the VIEWER's own party average
+    -- instead of whatever the sender actually had. Species/moves are
+    -- untouched -- a scaled-up mon can still only know what it was sent
+    -- with, a known and accepted tradeoff for an opt-in mode (see
+    -- ghostLevelMode's own comment). nil (no scaling) if the mode isn't on
+    -- or the viewer's own party is unreadable, in which case this behaves
+    -- exactly as it always has.
+    local scaleTo = (ghostLevelMode() == "scale") and viewerAverageLevel(game) or nil
     local slots = {}
     for _, mon in ipairs(rec.party or {}) do
       if mon and mon.species and mon.level then
@@ -802,7 +1058,7 @@ return function(mod)
           end
           if #moveIds == 0 then moveIds = nil end
         end
-        slots[#slots + 1] = { species = mon.species, level = mon.level, moves = moveIds }
+        slots[#slots + 1] = { species = mon.species, level = scaleTo or mon.level, moves = moveIds }
       end
     end
     if #slots == 0 then return nil end
@@ -820,12 +1076,20 @@ return function(mod)
     return class
   end
 
-  -- Ghosts that belong in the CURRENTLY loaded save (everyone else's).
+  -- Ghosts that belong in the CURRENTLY loaded save (everyone else's, same
+  -- generation). Gen 1 and Gen 2 map ids collide (Gold's post-game Kanto
+  -- reuses names like ROUTE_1), and battle-building is completely different
+  -- between them (script verbs vs. a native trainer object), so a record
+  -- from the wrong generation must never reach spawning at all -- not just
+  -- "would look confusing" but "would crash or misbehave". Older records
+  -- with no `game` field predate this and are treated as "red" (this mod's
+  -- only generation until now), matching what they always were.
+  local function recordGame(rec) return rec.game or "red" end
   local function activeGhosts(game)
     local origin = saveOriginId(game)
     local out = {}
     for _, rec in ipairs(loadStorage().ghosts) do
-      if rec.origin ~= origin then out[#out + 1] = rec end
+      if rec.origin ~= origin and recordGame(rec) == RECORD_GAME then out[#out + 1] = rec end
     end
     return out
   end
@@ -858,6 +1122,16 @@ return function(mod)
                           -- see spawnOnlineGhost: prevents the SAME sender's ghost from spawning twice (once
                           -- from the local shared file, once downloaded from the server) when online mode is on,
                           -- since the same send both writes locally and uploads.
+  local mapTiles = {}    -- mapId -> { ["x,y"] = true } for every tile a spawned ghost already occupies (local
+                          -- OR online) -- see spawnOnlineGhost: the server's own same-tile pick (worker.js's
+                          -- ROW_NUMBER() partition) only dedupes among rows IT stores, so a local ghost from
+                          -- ghosts.lua is invisible to it -- this catches a local ghost and a downloaded ghost
+                          -- landing on one square. DIFFERENT from mapOrigins: that catches the SAME sender seen
+                          -- twice, this catches DIFFERENT senders sharing coordinates. Local ghosts spawn
+                          -- synchronously at map entry and register first, so they reliably win the race
+                          -- against any async online fetch -- same ordering guarantee mapOrigins depends on.
+  local gen2Ghosts = {}  -- GEN 2 ONLY: rec.id -> {npcId, mapId, rec, trainerStruct, sight, afterScript} --
+                          -- everything refreshGen2Ghost needs to re-derive that ghost's object state.
 
   local function npcIdOf(npc, rec)
     -- spawnNpc returns the runtime object id as a STRING (e.g. "PALLET_TOWN_obj_4").
@@ -874,6 +1148,12 @@ return function(mod)
     spawned[mapId] = {}
     mapGhosts[mapId] = {}
     mapOrigins[mapId] = {}
+    mapTiles[mapId] = {}
+    if IS_GEN2 then
+      for id, ghost in pairs(gen2Ghosts) do
+        if ghost.mapId == mapId then gen2Ghosts[id] = nil end
+      end
+    end
   end
 
   -- GHOST COLLISION option, actually wired this time. Confirmed field from
@@ -897,9 +1177,15 @@ return function(mod)
   -- arrive asynchronously, potentially after the map's already spawned).
   -- Returns true on success.
   local function spawnOneGhost(game, w, mapId, rec)
-    injectTrainer(game, rec)  -- ensure the trainer class exists before any battle
+    -- A FRIENDLY ghost has no battle at all, so no trainer class is needed
+    -- -- otherwise identical spawn shape (stationary NPC, same sprite/
+    -- position/facing/collision handling) either way.
+    if rec.ghostType ~= "friendly" then
+      injectTrainer(game, rec)  -- ensure the trainer class exists before any battle
+    end
     local name = NPC_NAME_PREFIX .. rec.id
-    local objDef = { name = name, sprite = rec.sprite or PLAYER_SPRITE, movement = "STAY", range = normalizeDir(rec.facing), x = rec.x, y = rec.y }
+    local sprite = rec.sprite or PLAYER_SPRITE
+    local objDef = { name = name, sprite = sprite, movement = "STAY", range = normalizeDir(rec.facing), x = rec.x, y = rec.y }
     local npc, err = w:spawnNpc(mapId, objDef)
     if not npc then
       mod.log:warn("[silphscope_network] spawnNpc failed on %s: %s", tostring(mapId), tostring(err))
@@ -924,6 +1210,8 @@ return function(mod)
     applyCollision(w, mapId, name)
     mapOrigins[mapId] = mapOrigins[mapId] or {}
     mapOrigins[mapId][rec.sourceOrigin or rec.origin] = true
+    mapTiles[mapId] = mapTiles[mapId] or {}
+    mapTiles[mapId][rec.x .. "," .. rec.y] = true
     return true
   end
 
@@ -948,6 +1236,326 @@ return function(mod)
       end
     end
     if n > 0 then log("spawned %d local ghost(s) on map %s", n, tostring(mapId)) end
+  end
+
+  -- =====================================================================
+  -- GEN 2 (Gold) spawning + battle. Ported from the validated ssn_gen2_spike
+  -- (see silphscope-gen2-scope memory) -- everything here only ever runs
+  -- when IS_GEN2 is true; the Gen 1 code above/below it is untouched.
+  --
+  -- No hand-rolled walk-up: a Gold map object can carry a native `trainer`
+  -- struct ({class, member, seenText, winText}) + a `sight` range, and
+  -- World:checkTrainerBattle (run by the engine every step) does the "!",
+  -- the approach, the dialogue and the battle itself for any such object in
+  -- eyesight -- confirmed live, this is the entire GHOST SIGHT sequence for
+  -- free. Defeat is NOT: with no `event` field (a numeric slot into Gold's
+  -- own save-file event flags we must not squat on), the engine never marks
+  -- our ghost beaten, so that -- and what the ghost becomes afterward -- is
+  -- ours to track via save.flags (already generic, see defeatFlagName/
+  -- isDefeated above) and DERIVE, never bake, into the live object each time
+  -- something could have changed it (spawn, battle end, a toggle flip) --
+  -- baking it one-way was tried and found broken in the spike: REPEATABLE
+  -- turned on afterward did nothing for an already-beaten ghost, because
+  -- Gold's object defs live in the map table for the whole session and
+  -- re-entering the map rebuilds NPC instances FROM that def.
+  -- =====================================================================
+  local Trainers2, Mon2
+  if IS_GEN2 then
+    local okT, t = pcall(require, "src.world.gen2.Trainers")
+    if okT then Trainers2 = t end
+    local okM, m = pcall(require, "src.battle.gen2.Mon")
+    if okM then Mon2 = m end
+  end
+
+  -- Full-fidelity ghost mons. Trainers.party (the function that turns a
+  -- roster into real Mon instances for battle) hardcodes every trainer mon
+  -- to DVs 9/8/8/8/8 and never passes happiness -- that's the CART's own
+  -- MakeTrainerPartyMon behavior, used for real Gold trainers too, and it's
+  -- wrong for a ghost twice over: on Gen 2, gender and shininess are
+  -- DERIVED FROM DVS (Mon.vanillaGender compares the attack DV against
+  -- genderRatio/16; Mon.vanillaShiny wants speed/defense/special all 10 and
+  -- attack %4 in {2,3}), so fixed DVs mean every ghost is male and never
+  -- shiny regardless of the sender; happiness drives RETURN/FRUSTRATION and
+  -- defaults to 70. Fix: wrap Trainers.party once -- let the original build
+  -- the party (moves/stats/everything), then rebuild ONLY rows carrying our
+  -- own marker key through the SAME Mon.new constructor, with the real
+  -- dvs/happiness passed through. A row with no marker (every real Gold
+  -- trainer) comes back untouched, so the cart's own fixed-DV behavior for
+  -- its own trainers is preserved exactly.
+  local GEN2_ROSTER_EXTRA = "ssnExtra"
+  local gen2PartyWrapped = false
+  local function wrapGen2Party()
+    if gen2PartyWrapped or not (Trainers2 and Mon2) then return end
+    local original = Trainers2.party
+    if type(original) ~= "function" then return end
+    Trainers2.party = function(data, entry)
+      local out = original(data, entry)
+      local roster = entry and entry.roster
+      if type(roster) ~= "table" or type(out) ~= "table" then return out end
+      for i, row in ipairs(roster) do
+        local extra = type(row) == "table" and row[GEN2_ROSTER_EXTRA]
+        local built = out[i]
+        if extra and built then
+          -- Mon.new WRITES dvs.hp into the table it's handed -- copy first,
+          -- the source here can be the sender's own save data via a local
+          -- ghost record.
+          local dvs
+          if type(extra.dvs) == "table" then
+            dvs = {}
+            for k, v in pairs(extra.dvs) do dvs[k] = v end
+          end
+          local rebuilt = Mon2.new(data, row.species, row.level, {
+            moves = built.moves, item = built.item, dvs = dvs, happiness = extra.happiness,
+            nickname = extra.nickname,
+          })
+          if rebuilt then out[i] = rebuilt end
+        end
+      end
+      return out
+    end
+    gen2PartyWrapped = true
+    log("Gen 2: Trainers.party wrapped for full-fidelity ghost mons")
+  end
+  if IS_GEN2 then wrapGen2Party() end
+
+  -- A save party -> a Gen 2 trainer roster row, captured at SEND time (same
+  -- moment Gen 1 captures rec.party) so what's stored/uploaded is already
+  -- battle-ready. Deliberately a snapshot of species/level/moves(+dvs/
+  -- happiness for fidelity) -- OT is dropped, nothing in a battle reads it,
+  -- same fidelity ceiling the Gen 1 payload already has. DVs carry gender
+  -- AND shininess with them (see above), so those are never sent as
+  -- separate booleans -- a standalone flag would contradict the DVs the
+  -- instant anything re-derived them.
+  local function gen2PartyRoster(game)
+    local party = game and game.save and game.save.party
+    if type(party) ~= "table" or #party == 0 then return nil end
+    local roster = {}
+    for _, mon in ipairs(party) do
+      if mon and mon.species and mon.level then
+        local moves
+        if type(mon.moves) == "table" and #mon.moves > 0 then
+          moves = {}
+          for _, mv in ipairs(mon.moves) do
+            local id = type(mv) == "table" and mv.id or mv
+            if type(id) == "string" then moves[#moves + 1] = id end
+          end
+          if #moves == 0 then moves = nil end
+        end
+        local dvs
+        if type(mon.dvs) == "table" then
+          dvs = { attack = mon.dvs.attack, defense = mon.dvs.defense,
+            speed = mon.dvs.speed, special = mon.dvs.special }
+        end
+        -- A Gen 2 save party mon's nickname field is `.name` (confirmed
+        -- from a live Gold save dump, see silphscope-gen2-scope memory) --
+        -- NOT `.nickname`, which is what Mon.new's own opts field is
+        -- called. Renamed here so our own storage/transmission is
+        -- consistent with Gen 1's naming, not because the source data uses
+        -- that key.
+        local nick = type(mon.name) == "string" and mon.name ~= "" and mon.name or nil
+        roster[#roster + 1] = { species = mon.species, level = mon.level,
+          moves = moves, item = mon.item,
+          [GEN2_ROSTER_EXTRA] = { dvs = dvs, happiness = mon.happiness, nickname = nick } }
+      end
+    end
+    if #roster == 0 then return nil end
+    return roster
+  end
+
+  local GEN2_STANDING = { down = 6, up = 7, left = 8, right = 9 }  -- constants/map_object_constants.asm, via src/world/gen2/Npc.lua's MOVE table
+  local GEN2_SIGHT_CELLS = 5  -- same scale as Gen 1's own GHOST SIGHT range
+
+  local refreshGen2Ghost  -- forward-declared: spawnOneGen2Ghost calls it before its definition below
+
+  -- Class+member injection: appends a member to a REAL trainer class (so
+  -- money/items/AI personality come from the game's own balanced values,
+  -- same trick as Gen 1's baseMoneyForPic) and injects the seen/win text
+  -- into the live VM text table. Reuses the SAME member slot across
+  -- refreshes of one ghost (rec._gen2Member) rather than growing the
+  -- class's trainers array every spawn.
+  local function gen2InjectGhost(game, rec)
+    local data = game and game.data
+    local classes = data and data.trainers and data.trainers.classes
+    local classId = rec.pic or GEN2_PLAYER_CLASS
+    local entry = classes and classes[classId]
+    if not entry then
+      entry = classes and classes[GEN2_PLAYER_CLASS]
+      classId = GEN2_PLAYER_CLASS
+    end
+    if not (entry and type(entry.trainers) == "table") then return nil end
+    local roster = type(rec.party) == "table" and #rec.party > 0 and rec.party or nil
+    if not roster then return nil end
+    -- SCALE TO ME (same rule as Gen 1's injectTrainer): every mon's level
+    -- becomes the viewer's own party average. Species/moves/dvs untouched.
+    -- rec.party is the SAME table object cached in loadStorage().ghosts (or
+    -- the online download record), so this must build a fresh copy rather
+    -- than mutate it in place -- otherwise a scaled level would get written
+    -- back into the shared local storage / corrupt what a later refresh
+    -- reads for a DIFFERENT viewer with scaling off.
+    local scaleTo = (ghostLevelMode() == "scale") and viewerAverageLevel(game) or nil
+    if scaleTo then
+      local scaled = {}
+      for i, mon in ipairs(roster) do
+        local copy = {}
+        for k, v in pairs(mon) do copy[k] = v end
+        copy.level = scaleTo
+        scaled[i] = copy
+      end
+      roster = scaled
+    end
+    local tag = "SSN_" .. tostring(rec.origin) .. "_" .. tostring(rec.id)
+    local member = rec._gen2Member
+    if member and entry.trainers[member] and entry.trainers[member].id == tag then
+      entry.trainers[member].party = roster
+    else
+      member = #entry.trainers + 1
+      entry.trainers[member] = { id = tag, index = member, name = rec.name or "RIVAL",
+        party = roster, trainerType = "TRAINERTYPE_NORMAL" }
+      rec._gen2Member = member
+    end
+    local seenKey, winKey = tag .. "_SEEN", tag .. "_WIN"
+    local ok, ow = pcall(function() return mod.world:overworld() end)
+    local texts = ok and ow and ow.text
+    if type(texts) == "table" then
+      texts[seenKey] = rec.beforeText and ((rec.name or "RIVAL") .. ": " .. rec.beforeText)
+        or ((rec.name or "RIVAL") .. "\nwants to battle!")
+      texts[winKey] = rec.afterText and ((rec.name or "RIVAL") .. ": " .. rec.afterText)
+        or ((rec.name or "RIVAL") .. " has nothing\nmore to say.")
+    end
+    return { classIndex = entry.index, member = member, seenKey = seenKey, winKey = winKey }
+  end
+
+  -- Spawns ONE Gen 2 ghost NPC. Mirrors spawnOneGhost's role/callers exactly
+  -- (shared by spawnGhostsForGen2Map and the online download handler) but
+  -- the objDef shape is entirely different -- Gen 2 wants a numeric
+  -- STANDING_* movement, `type = 2` (trainer), a `sight` range and the
+  -- `trainer` struct itself, none of which Gen 1's spawnNpc call uses.
+  local function spawnOneGen2Ghost(game, w, mapId, rec)
+    local sprite = rec.sprite
+    if not (type(sprite) == "string" and type(rec.pic) == "string"
+      and GEN2_SPRITE_PAIR_OK[sprite .. "|" .. rec.pic]) then
+      sprite = GEN2_PLAYER_SPRITE
+    end
+    local dir = string.lower(normalizeDir(rec.facing))
+
+    -- FRIENDLY: a plain, non-trainer NPC (type=0, no `trainer` struct,
+    -- sight=0) -- the SAME shape this mod already uses live for a
+    -- defeated, non-repeatable TRAINER ghost (npc.def.trainer=nil,
+    -- sight=0), just built directly here instead of derived. Deliberately
+    -- no scriptKey either: dialogue and the gift-item grant are driven by
+    -- a manual per-tick facing+interact poll (engageFriendlyGhost, called
+    -- from gen2Step), not native script dispatch -- avoids needing to
+    -- verify world.interacted's exact Gen 2 payload shape blind, and
+    -- reuses the SAME manual-poll pattern Gen 1 already relies on for its
+    -- own ghost interactions.
+    if rec.ghostType == "friendly" then
+      local objDef = {
+        sprite = sprite, x = rec.x, y = rec.y,
+        movement = GEN2_STANDING[dir] or GEN2_STANDING.down,
+        type = 0, sight = 0, palette = 0,
+        radius = { x = 0, y = 0 }, hours = { -1, -1 },
+      }
+      local id, err = w:spawnNpc(mapId, objDef)
+      if not id then
+        mod.log:warn("[silphscope_network] gen2 friendly spawnNpc failed on %s: %s", tostring(mapId), tostring(err))
+        return false
+      end
+      spawned[mapId] = spawned[mapId] or {}
+      spawned[mapId][#spawned[mapId] + 1] = id
+      mapGhosts[mapId] = mapGhosts[mapId] or {}
+      mapGhosts[mapId][#mapGhosts[mapId] + 1] = { rec = rec, gen2 = true, npcId = id }
+      mapOrigins[mapId] = mapOrigins[mapId] or {}
+      mapOrigins[mapId][rec.sourceOrigin or rec.origin] = true
+      mapTiles[mapId] = mapTiles[mapId] or {}
+      mapTiles[mapId][rec.x .. "," .. rec.y] = true
+      return true
+    end
+
+    local inj = gen2InjectGhost(game, rec)
+    if not inj then
+      log("gen2 inject failed for ghost '%s'", tostring(rec.name))
+      return false
+    end
+    local trainerStruct = { class = inj.classIndex, member = inj.member,
+      seenText = inj.seenKey, winText = inj.winKey }
+    local sight = GEN2_SIGHT_CELLS + 1
+    local objDef = {
+      sprite = sprite, x = rec.x, y = rec.y,
+      movement = GEN2_STANDING[dir] or GEN2_STANDING.down,
+      type = 2, sight = sight, palette = 0,
+      radius = { x = 0, y = 0 }, hours = { -1, -1 },
+      trainer = trainerStruct,
+    }
+    local id, err = w:spawnNpc(mapId, objDef)
+    if not id then
+      mod.log:warn("[silphscope_network] gen2 spawnNpc failed on %s: %s", tostring(mapId), tostring(err))
+      return false
+    end
+    spawned[mapId] = spawned[mapId] or {}
+    spawned[mapId][#spawned[mapId] + 1] = id
+    local ghost = { npcId = id, mapId = mapId, rec = rec, trainerStruct = trainerStruct,
+      sight = sight, afterScript = { { op = "jumptextfaceplayer", text = inj.winKey } } }
+    gen2Ghosts[rec.id] = ghost
+    mapGhosts[mapId] = mapGhosts[mapId] or {}
+    mapGhosts[mapId][#mapGhosts[mapId] + 1] = { rec = rec, gen2 = true, npcId = id }
+    mapOrigins[mapId] = mapOrigins[mapId] or {}
+    mapOrigins[mapId][rec.sourceOrigin or rec.origin] = true
+    mapTiles[mapId] = mapTiles[mapId] or {}
+    mapTiles[mapId][rec.x .. "," .. rec.y] = true
+    refreshGen2Ghost(game, ghost)  -- derive its real state immediately -- a defeat flag from an earlier session may already be set
+    return true
+  end
+
+  local function liveGen2Npc(w, npcId)
+    if not (w and type(w.npcs) == "table") then return nil end
+    for _, npc in ipairs(w.npcs) do
+      if npc.id == npcId then return npc end
+    end
+    return nil
+  end
+
+  -- DERIVED, never baked -- see the block comment above this section for why.
+  -- Mirrors the spike's refreshGhost exactly: hunting (trainer struct live,
+  -- full sight) / beaten-but-repeatable (trainer struct live, sight zeroed
+  -- so it won't ambush, but interactBody tries def.trainer BEFORE
+  -- def.scriptKey so an A-press still resolves to a real rematch) / beaten
+  -- default (trainer struct cleared, scriptKey plays the after-battle line).
+  refreshGen2Ghost = function(game, ghost)
+    local ok, w = pcall(function() return mod.world:overworld() end)
+    if not (ok and w) then return false end
+    local npc = liveGen2Npc(w, ghost.npcId)
+    if not (npc and npc.def) then return false end
+    local defeated = isDefeated(game, ghost.rec)
+    -- GHOST COLLISION -- same rule as Gen 1's Collision.occupied: an entity
+    -- blocks unless passable. Lives on the live NPC instance (NPC.new never
+    -- reads objDef.passable), so it belongs in the refresh, not the spawn.
+    npc.passable = (mod.options:get("ghost_collision") == false)
+    if not defeated then
+      npc.def.trainer = ghost.trainerStruct
+      npc.def.sight = ghost.sight
+      npc.def.scriptKey = nil
+    elseif mod.options:get("ghost_repeatable") == true then
+      npc.def.trainer = ghost.trainerStruct
+      npc.def.sight = 0
+      npc.def.scriptKey = nil
+    else
+      npc.def.trainer = nil
+      npc.def.sight = 0
+      npc.def.scriptKey = ghost.afterScript
+    end
+    return true
+  end
+
+  local function spawnGhostsForGen2Map(game, mapId)
+    game = game or liveGame
+    local w = world()
+    if not (w and game and mapId) then return end
+    despawnMap(mapId)
+    local n = 0
+    for _, rec in ipairs(activeGhosts(game)) do
+      if rec.mapId == mapId and spawnOneGen2Ghost(game, w, mapId, rec) then n = n + 1 end
+    end
+    if n > 0 then log("spawned %d gen2 ghost(s) on map %s", n, tostring(mapId)) end
   end
 
   -- =====================================================================
@@ -990,17 +1598,240 @@ return function(mod)
   -- Current map + every map it's directly connected to (game.data.maps'
   -- own connections table -- already-loaded ROM data, so the server never
   -- needs to know anything about the game's map graph).
+  --
+  -- The STRING neighbor id lives under a different field per generation --
+  -- found while building Gen 2 level protection, but this fixes a real gap
+  -- in the already-built Gen 2 online nearby-fetch too, not just the new
+  -- feature: Gen 1's connections entries carry the neighbor's string id
+  -- directly as `.map` (e.g. `{map = "ROUTE_2", ...}`); Gold's own
+  -- connections entries instead have `.map` as a NUMERIC map-group index
+  -- and the actual string id under `.mapId` (confirmed against
+  -- gold/data/generated/maps.lua). Without this, `type(conn.map) ==
+  -- "string"` was silently false for every Gold connection, so Gen 2
+  -- clients never actually queried neighboring maps at all -- current map
+  -- only, invisibly. Checking both field names costs nothing on Gen 1
+  -- (its connections never HAVE a `.mapId`) and fixes Gen 2 for both this
+  -- and the existing online-fetch use.
+  --
+  -- CONFIRMED LIVE (2026-08-14): plain `game.data.maps` is nil on Gen 2 for
+  -- a mod's own game.data reference at all -- see dataTable's own comment
+  -- near the top of the file for why. Was silently broken here too before
+  -- this, on top of the connections-field-name issue above.
   local function nearbyMapIds(game, mapId)
     local ids = { mapId }
-    local ok, def = pcall(function() return game.data.maps[mapId] end)
+    local ok, def = pcall(function() return dataTable(game, "maps")[mapId] end)
     if ok and type(def) == "table" and type(def.connections) == "table" then
       for _, conn in pairs(def.connections) do
-        if type(conn) == "table" and type(conn.map) == "string" then
-          ids[#ids + 1] = conn.map
+        if type(conn) == "table" then
+          local neighbor = conn.map
+          if type(neighbor) ~= "string" then neighbor = conn.mapId end
+          if type(neighbor) == "string" then ids[#ids + 1] = neighbor end
         end
       end
     end
     return ids
+  end
+
+  -- =====================================================================
+  -- LEVEL/ZONE PROTECTION: cap which DOWNLOADED ghosts you see at roughly
+  -- this area's own level, so a low-level area can't get steamrolled by
+  -- someone else's endgame team. Reads the game's OWN wild-encounter and
+  -- trainer-party data rather than a hand-maintained table, so it's exact
+  -- for whatever ROM this build actually has and self-corrects if a mod
+  -- patches encounters. Works on BOTH generations (2026-08-14) -- Gen 2's
+  -- data lives under different field shapes (see mapOwnLevel/
+  -- gen2ClassByIndexTable) but the same zoneLevel/margin/EXEMPT/BRANCH
+  -- machinery drives both; the EXEMPT/BRANCH map tables themselves stay
+  -- Gen 1-only since they were tuned against Gen 1's own data.
+  --
+  -- Deliberately does NOT gate what you can SEND -- an overleveled sender's
+  -- ghost simply won't be offered to a REGION LOCK viewer (enforced
+  -- server-side, see startOnlineNearbyFetch/worker.js's maxLevel filter);
+  -- the sender gets a heads-up about that at send time instead, in
+  -- sendSelf below.
+  -- =====================================================================
+  local LEVEL_PROTECTION_MARGIN = 2
+
+  -- Per-map overrides, both easy to flip in code (2026-08-14 follow-up):
+  --
+  -- EXEMPT: no cap at all, regardless of margin. ROUTE_23 (the final
+  -- approach to Victory Road/the Elite Four) is exempt by default -- it's
+  -- where most late-game players legitimately cluster, and at that stage
+  -- team POWER swings far more with movesets/items/skill than with the
+  -- handful of levels a cap would be gatekeeping, so a hard cap there
+  -- punishes normal endgame progress more than it deters smurfing. Comment
+  -- the entry out to restore the cap there.
+  local LEVEL_PROTECTION_EXEMPT_MAPS = {
+    ROUTE_23 = true,
+  }
+
+  -- BRANCH: a wider flat margin REPLACING LEVEL_PROTECTION_MARGIN (not
+  -- stacked on top of it) for routes that sit on a genuine order-of-
+  -- operations branch. Gen 1 deliberately lets you tackle Celadon/Fuchsia/
+  -- Saffron/Cinnabar (Erika/Koga/Sabrina/Blaine) in almost any order once
+  -- you have the right HMs, so a player who does one first, levels up, then
+  -- loops back through a connecting route they technically visited "out of
+  -- order" shouldn't get quietly locked out of sending/seeing ghosts there.
+  -- Judgment call, not derived from data (maps.lua has no "branch" field) --
+  -- flagged for correction: these are the routes connecting those four
+  -- towns to each other and to Lavender/Saffron. Measured against the real
+  -- data (2026-08-14): own zone levels here range 22 (ROUTE_7) to 40
+  -- (ROUTE_19/20, pulled up by their wild tables, not trainers) -- +8
+  -- parked as a reasonable starting point, not yet tuned live.
+  local LEVEL_PROTECTION_BRANCH_MARGIN = 8
+  -- Both Gen 1 route ids, tuned specifically against Gen 1's own data (see
+  -- the measurements above) -- deliberately NOT consulted on Gen 2 even
+  -- though Gold's post-game Kanto reuses some of these exact names, since
+  -- those namesake maps were never measured for Gold and could easily have
+  -- totally different zone levels there. mapOwnLevel/filterCapForMap gate
+  -- both tables on `not IS_GEN2` for this reason -- a Gen 2-specific
+  -- EXEMPT/BRANCH pass (Gold's own Victory Road approach, its own branch
+  -- routes) would need its own tables, not a reuse of these.
+  local LEVEL_PROTECTION_BRANCH_MAPS = {
+    ROUTE_7 = true, ROUTE_8 = true, ROUTE_16 = true, ROUTE_17 = true,
+    ROUTE_18 = true, ROUTE_19 = true, ROUTE_20 = true,
+  }
+
+  -- Gen 2 ONLY: a map object's trainer struct carries a NUMERIC class index
+  -- (`obj.trainer.class`), not the string class key Gen 1's
+  -- `obj.trainerClass` gives directly -- confirmed against
+  -- gold/data/generated/maps.lua (a real Bug Catcher object there:
+  -- `trainer = {class = 36, member = 5, ...}`). data.trainers.classes is
+  -- keyed by string but each entry carries its own `.index`, so this scans
+  -- it once and caches index -> entry for that reverse lookup.
+  local gen2ClassByIndex
+  local function gen2ClassByIndexTable(game)
+    if gen2ClassByIndex then return gen2ClassByIndex end
+    local t = {}
+    pcall(function()
+      local classes = game.data.trainers and game.data.trainers.classes
+      if type(classes) == "table" then
+        for _, entry in pairs(classes) do
+          if type(entry) == "table" and type(entry.index) == "number" then
+            t[entry.index] = entry
+          end
+        end
+      end
+    end)
+    gen2ClassByIndex = t
+    return t
+  end
+
+  local function mapOwnLevel(game, mapId)
+    local data = game and game.data
+    if not data then return nil end
+    local maxLv
+    local function bump(lv)
+      if type(lv) == "number" and (not maxLv or lv > maxLv) then maxLv = lv end
+    end
+    if IS_GEN2 then
+      -- Gold's own encounter tables are keyed differently from Gen 1's:
+      -- grass is data.encounters.grass[mapId].slots[DAY|MORN|NITE] (an
+      -- array PER time of day, not one flat array), water is
+      -- data.encounters.water[mapId].slots (flat, same shape as Gen 1).
+      -- Confirmed against gold/data/generated/encounters.lua.
+      pcall(function()
+        local enc = dataTable(game, "encounters")
+        local grassDef = enc and enc.grass and enc.grass[mapId]
+        if type(grassDef) == "table" and type(grassDef.slots) == "table" then
+          for _, daySlots in pairs(grassDef.slots) do
+            if type(daySlots) == "table" then
+              for _, slot in ipairs(daySlots) do bump(slot and slot.level) end
+            end
+          end
+        end
+        local waterDef = enc and enc.water and enc.water[mapId]
+        if type(waterDef) == "table" and type(waterDef.slots) == "table" then
+          for _, slot in ipairs(waterDef.slots) do bump(slot and slot.level) end
+        end
+        local maps = dataTable(game, "maps")
+        local mapDef = maps and maps[mapId]
+        if type(mapDef) == "table" and type(mapDef.objects) == "table" then
+          local byIndex = gen2ClassByIndexTable(game)
+          for _, obj in ipairs(mapDef.objects) do
+            local t = obj.trainer
+            if type(t) == "table" and t.class and t.member then
+              local entry = byIndex[t.class]
+              local member = entry and entry.trainers and entry.trainers[t.member]
+              local party = member and member.party
+              if type(party) == "table" then
+                for _, mon in ipairs(party) do bump(mon and mon.level) end
+              end
+            end
+          end
+        end
+      end)
+      return maxLv
+    end
+    pcall(function()
+      local enc = data.encounters and data.encounters[mapId]
+      if type(enc) == "table" then
+        for _, kind in ipairs({ "grass", "water" }) do
+          local slots = enc[kind] and enc[kind].slots
+          if type(slots) == "table" then
+            for _, slot in ipairs(slots) do bump(slot and slot.level) end
+          end
+        end
+      end
+      local mapDef = data.maps and data.maps[mapId]
+      if type(mapDef) == "table" and type(mapDef.objects) == "table" then
+        for _, obj in ipairs(mapDef.objects) do
+          local class, partyIdx = obj.trainerClass, obj.trainerParty
+          if class and partyIdx then
+            local classDef = data.trainers and data.trainers[class]
+            local party = classDef and classDef.parties and classDef.parties[partyIdx]
+            if type(party) == "table" then
+              for _, mon in ipairs(party) do bump(mon and mon.level) end
+            end
+          end
+        end
+      end
+    end)
+    return maxLv
+  end
+
+  -- Maps with neither wild nor trainer data (a pure walkway segment) inherit
+  -- the max level of whatever they directly connect to, reusing the same
+  -- neighbor list nearbyMapIds already computes (fixed to read Gen 2's own
+  -- connection field shape too, see nearbyMapIds' own comment).
+  local function zoneLevel(game, mapId, seen)
+    seen = seen or {}
+    if seen[mapId] then return nil end
+    seen[mapId] = true
+    local lv = mapOwnLevel(game, mapId)
+    if lv then return lv end
+    for _, neighbor in ipairs(nearbyMapIds(game, mapId)) do
+      if neighbor ~= mapId then
+        local nlv = zoneLevel(game, neighbor, seen)
+        if nlv and (not lv or nlv > lv) then lv = nlv end
+      end
+    end
+    return lv
+  end
+
+  -- The REGION LOCK cap for a given map, independent of the CALLER's own
+  -- GHOST LEVELING mode -- used both to decide what a REGION LOCK viewer
+  -- requests from the server, and to warn a SENDER how a REGION LOCK viewer
+  -- elsewhere would see their ghost regardless of the sender's own mode.
+  -- nil for "no cap" -- either an EXEMPT map, or no zone data at all (fail
+  -- open rather than silently hiding every ghost near an undata'd map).
+  local function filterCapForMap(game, mapId)
+    if not IS_GEN2 and LEVEL_PROTECTION_EXEMPT_MAPS[mapId] then return nil end
+    local lv = zoneLevel(game, mapId)
+    if not lv then return nil end
+    local margin = (not IS_GEN2) and LEVEL_PROTECTION_BRANCH_MAPS[mapId]
+      and LEVEL_PROTECTION_BRANCH_MARGIN or LEVEL_PROTECTION_MARGIN
+    return lv + margin
+  end
+
+  -- The cap THIS client should actually request from the server, given its
+  -- own GHOST LEVELING mode -- nil (no filtering) unless this client is
+  -- itself in REGION LOCK mode. SCALE and OFF both want every ghost back
+  -- unfiltered (SCALE then re-levels them client-side, see injectTrainer/
+  -- gen2InjectGhost; OFF shows them as sent).
+  local function levelCapForMap(game, mapId)
+    if ghostLevelMode() ~= "filter" then return nil end
+    return filterCapForMap(game, mapId)
   end
 
   local pendingUpload  -- { jobId = ... } or nil
@@ -1042,23 +1873,42 @@ return function(mod)
       return
     end
     local okBuild, jobId = pcall(function()
-      local party = {}
-      for _, mon in ipairs(rec.party or {}) do
-        local moveIds
-        if type(mon.moves) == "table" and #mon.moves > 0 then
-          moveIds = {}
-          for _, mv in ipairs(mon.moves) do
-            local id = type(mv) == "table" and mv.id or mv
-            if id then moveIds[#moveIds + 1] = id end
+      -- Gen 2's rec.party is already roster-shaped (species/level/moves as
+      -- plain id strings/item/ssnExtra{dvs,happiness}), captured that way at
+      -- SEND time -- forward it verbatim so full fidelity survives the
+      -- round trip. Gen 1's rec.party is the raw save-party deepcopy, so it
+      -- still needs the same per-field extraction this always did.
+      -- A FRIENDLY ghost has no party at all (rec.party is nil) -- send an
+      -- empty array rather than nil/null so the server's own JSON parsing
+      -- and validation have one consistent shape to check against
+      -- regardless of ghost type.
+      local party
+      if not rec.party then
+        party = {}
+      elseif IS_GEN2 then
+        party = rec.party
+      else
+        party = {}
+        for _, mon in ipairs(rec.party) do
+          local moveIds
+          if type(mon.moves) == "table" and #mon.moves > 0 then
+            moveIds = {}
+            for _, mv in ipairs(mon.moves) do
+              local id = type(mv) == "table" and mv.id or mv
+              if id then moveIds[#moveIds + 1] = id end
+            end
           end
+          local nick = type(mon.nickname) == "string" and mon.nickname ~= "" and mon.nickname or nil
+          party[#party + 1] = { species = mon.species, level = mon.level, moves = moveIds, nickname = nick }
         end
-        party[#party + 1] = { species = mon.species, level = mon.level, moves = moveIds }
       end
       local payload = {
         id = rec.origin, name = rec.name, mapId = rec.mapId,
         x = rec.x, y = rec.y, facing = rec.facing, party = party,
         beforeText = rec.beforeText, afterText = rec.afterText,
         sprite = rec.sprite, pic = rec.pic, password = rec.password or "",
+        game = RECORD_GAME, ghostType = rec.ghostType,
+        giftItem = rec.giftItem, giftQty = rec.giftQty,
       }
       local jsonStr = Json.encode(payload)
       if #jsonStr > ONLINE_UPLOAD_MAX_BYTES then
@@ -1144,9 +1994,11 @@ return function(mod)
       -- uploaded under the same password. Defaults to "" (public) if this
       -- save has never set one.
       local password = loadStorage().passwords[origin] or ""
-      local url = string.format("%s/nearby?maps=%s&count=%d&exclude=%s&password=%s",
+      local cap = levelCapForMap(game, mapId)
+      local url = string.format("%s/nearby?maps=%s&count=%d&exclude=%s&password=%s&game=%s",
         ONLINE_SERVER_URL, urlEncodeComponent(maps), onlineGhostCount(), urlEncodeComponent(origin),
-        urlEncodeComponent(password))
+        urlEncodeComponent(password), urlEncodeComponent(RECORD_GAME))
+      if cap then url = url .. "&maxLevel=" .. tostring(cap) end
       return Fetch.get(url, { maxSeconds = 15 })
     end)
     if okBuild and jobId then
@@ -1181,7 +2033,12 @@ return function(mod)
   local function spawnOnlineGhost(game, w, mapId, serverGhost)
     if type(serverGhost) ~= "table" or type(serverGhost.id) ~= "string" then return false end
     if type(serverGhost.x) ~= "number" or type(serverGhost.y) ~= "number" then return false end
-    if type(serverGhost.party) ~= "table" or #serverGhost.party == 0 then return false end
+    -- A FRIENDLY ghost has no party at all -- only require a non-empty
+    -- party for a battle (POKETRAINER) ghost.
+    local ghostType = (serverGhost.ghostType == "friendly") and "friendly" or "trainer"
+    if ghostType ~= "friendly" and (type(serverGhost.party) ~= "table" or #serverGhost.party == 0) then
+      return false
+    end
     -- nearbyMapIds queries the current map PLUS every directly-connected
     -- neighbor (so the server can answer in one round trip), but a ghost
     -- from a neighboring map must only ever be spawned on ITS OWN map --
@@ -1201,6 +2058,21 @@ return function(mod)
         tostring(serverGhost.id), tostring(mapId))
       return false
     end
+    -- Same-tile guard (client half -- see mapTiles' own comment): the
+    -- server already picks at most one ghost per exact tile among what IT
+    -- stores (worker.js's ROW_NUMBER() partition), but a LOCAL shared-file
+    -- ghost is invisible to that query -- this catches a local ghost and a
+    -- downloaded ghost landing on one square. Different case from the
+    -- mapOrigins check just above (same sender via two channels); this is
+    -- two DIFFERENT senders sharing coordinates.
+    do
+      local tileKey = tostring(serverGhost.x) .. "," .. tostring(serverGhost.y)
+      if mapTiles[mapId] and mapTiles[mapId][tileKey] then
+        log("online ghost from '%s' skipped -- tile %s already occupied on map %s",
+          tostring(serverGhost.id), tileKey, tostring(mapId))
+        return false
+      end
+    end
     -- Identity MUST change when the sender re-sends, or their brand-new
     -- ghost inherits the previous one's defeat flag and spawns already
     -- beaten -- it won't hunt you, it just stands there replaying an
@@ -1217,15 +2089,25 @@ return function(mod)
     local stamp = tonumber(serverGhost.uploadedAt)
     local uid = "online_" .. safeId
     if stamp then uid = uid .. "_" .. string.format("%.0f", stamp) end
-    -- Never trust the wire's sprite/pic (see SPRITE_PAIR_OK): the pair is
-    -- honoured only if it exactly matches a combination we ship ourselves,
-    -- so neither half can be an arbitrary sprite id or asset path. Ghosts
-    -- uploaded before v0.11.0 with one of the two corrected pairings
-    -- (BIRD_KEEPER/LASS) no longer match and simply fall back to Red.
-    local sprite, pic = PLAYER_SPRITE, PLAYER_PIC
-    if type(serverGhost.sprite) == "string" and type(serverGhost.pic) == "string"
-      and SPRITE_PAIR_OK[serverGhost.sprite .. "|" .. serverGhost.pic] then
-      sprite, pic = serverGhost.sprite, serverGhost.pic
+    -- Never trust the wire's sprite/pic (see SPRITE_PAIR_OK/GEN2_SPRITE_PAIR_OK):
+    -- the pair is honoured only if it exactly matches a combination we ship
+    -- ourselves, so neither half can be an arbitrary sprite id, asset path,
+    -- or (Gen 2) trainer class id. Ghosts uploaded before v0.11.0 with one
+    -- of the two corrected pairings (BIRD_KEEPER/LASS) no longer match and
+    -- simply fall back to the default look.
+    local sprite, pic
+    if IS_GEN2 then
+      sprite, pic = GEN2_PLAYER_SPRITE, GEN2_PLAYER_CLASS
+      if type(serverGhost.sprite) == "string" and type(serverGhost.pic) == "string"
+        and GEN2_SPRITE_PAIR_OK[serverGhost.sprite .. "|" .. serverGhost.pic] then
+        sprite, pic = serverGhost.sprite, serverGhost.pic
+      end
+    else
+      sprite, pic = PLAYER_SPRITE, PLAYER_PIC
+      if type(serverGhost.sprite) == "string" and type(serverGhost.pic) == "string"
+        and SPRITE_PAIR_OK[serverGhost.sprite .. "|" .. serverGhost.pic] then
+        sprite, pic = serverGhost.sprite, serverGhost.pic
+      end
     end
     local rec = {
       id = uid,
@@ -1234,12 +2116,23 @@ return function(mod)
       name = serverGhost.name or "RIVAL",
       mapId = mapId,
       x = serverGhost.x, y = serverGhost.y, facing = serverGhost.facing,
+      ghostType = ghostType,
       party = serverGhost.party,
       beforeText = serverGhost.beforeText,
       afterText = serverGhost.afterText,
       sprite = sprite,
       pic = pic,
+      game = RECORD_GAME,
+      -- Item id/qty are NOT re-validated here the way sprite/pic are --
+      -- Bag.add itself does NOT check that an id is a real known item (it
+      -- falls back to a generic pocket for anything unrecognised and
+      -- writes it into save.inventory regardless), so engageFriendlyGhost
+      -- is where the real isGiftableItem() re-check happens, right before
+      -- the actual grant -- see its own comment.
+      giftItem = ghostType == "friendly" and serverGhost.giftItem or nil,
+      giftQty = ghostType == "friendly" and serverGhost.giftQty or nil,
     }
+    if IS_GEN2 then return spawnOneGen2Ghost(game, w, mapId, rec) end
     return spawnOneGhost(game, w, mapId, rec)
   end
 
@@ -1281,11 +2174,19 @@ return function(mod)
             msg = "You have no ghost\nout there right now.\fSend one from a\nroute or dungeon!"
           else
             local enc = tonumber(decoded.encounters) or 0
-            local won = tonumber(decoded.wins) or 0
-            local lost = tonumber(decoded.losses) or 0
+            local friendlyType = decoded.ghostType == "friendly"
             if enc == 0 then
               msg = ("Your ghost waits on\n%s.\fNobody has found it\nyet."):format(tostring(decoded.mapId or "?"))
+            elseif friendlyType then
+              -- No win/loss concept for a friendly ghost -- just how many
+              -- distinct people have stopped to talk to it (see
+              -- engageFriendlyGhost's own "encounter" report, once per new
+              -- visitor).
+              msg = ("Your ghost on %s\nhas been visited by\n%d trainer(s)!"):format(
+                tostring(decoded.mapId or "?"), enc)
             else
+              local won = tonumber(decoded.wins) or 0
+              local lost = tonumber(decoded.losses) or 0
               msg = ("Your ghost on %s\nhas been found by\n%d trainer(s)!"):format(
                 tostring(decoded.mapId or "?"), enc)
               msg = msg .. ("\fIt won %d\nand lost %d."):format(won, lost)
@@ -1361,6 +2262,96 @@ return function(mod)
         end
       end
     end
+  end
+
+  -- =====================================================================
+  -- GEN 1 NICKNAME PATCH: battle.started fires once the whole battle object
+  -- -- including a fully-built self.enemyParty -- already exists (it's
+  -- emitted right at the end of BattleState:enter, well after newTrainer's
+  -- construction), and BEFORE any message that could reference a mon's name
+  -- is queued. So this is the one seam where a ghost's mons can get their
+  -- nickname set for real, since neither Pokemon.new nor
+  -- BattleState.newTrainer accept or read one at construction time (see
+  -- injectTrainer's own comment). ev.trainerId is the class id the engine's
+  -- own event payload gives us; injectedRecs maps that back to the rec whose
+  -- party carries the sender's actual nicknames (rec.party[i] and
+  -- enemyParty[i] line up 1:1 -- both are built in the same order from the
+  -- same source list, skipping nothing since every stored party mon always
+  -- has species+level). No-op on Gen 2 (different trainerId shape entirely,
+  -- so the lookup just misses) -- that side gets nicknames through Mon.new's
+  -- own opts.nickname instead, see gen2PartyRoster/wrapGen2Party.
+  pcall(function()
+    mod.events:on("battle.started", function(ev)
+      local trainerId = ev and ev.trainerId
+      local rec = trainerId and injectedRecs[trainerId]
+      local enemyParty = rec and ev.battle and ev.battle.enemyParty
+      if type(enemyParty) ~= "table" then return end
+      local n = 0
+      for i, mon in ipairs(enemyParty) do
+        local src = rec.party and rec.party[i]
+        local nick = src and src.nickname
+        if type(nick) == "string" and nick ~= "" then
+          mon.nickname = nick
+          n = n + 1
+        end
+      end
+      if n > 0 then log("nicknamed %d mon(s) for ghost '%s'", n, tostring(rec.name)) end
+    end)
+  end)
+
+  -- =====================================================================
+  -- GEN 2 EVENT WIRING: battle result + engagement detection. Unlike Gen 1
+  -- (which has to infer a result from ctx.lastCheck / poll scriptRunning()),
+  -- Gen 2's battle.ended event carries the outcome directly, and
+  -- world.trainer_engaged fires for BOTH the eyesight cone and a manual
+  -- A-press against a trainer object -- so this is simpler than Gen 1's
+  -- awaitingResult/resolvePendingResults machinery, not a port of it.
+  -- =====================================================================
+  if IS_GEN2 then
+    local gen2PendingGhost  -- the gen2Ghosts[] entry whose battle is currently in flight
+
+    pcall(function()
+      mod.events:on("world.trainer_engaged", function(ev)
+        local member = ev and ev.partyIndex
+        if not member then return end
+        for _, ghost in pairs(gen2Ghosts) do
+          if ghost.trainerStruct.member == member then
+            gen2PendingGhost = ghost
+            log("gen2 ghost '%s' engaged (%s)", tostring(ghost.rec.name),
+              (ev and ev.sight) and "sight" or "interact")
+            -- Battle is committed the moment the engine reports this, same
+            -- "honest encounter" moment Gen 1 uses. No-op for a local ghost.
+            queueOnlineReport(ghost.rec, "encounter")
+            break
+          end
+        end
+      end)
+    end)
+
+    pcall(function()
+      mod.events:on("battle.ended", function(ev)
+        local ghost = gen2PendingGhost
+        gen2PendingGhost = nil
+        if not ghost then return end
+        local result = ev and ev.result
+        if result ~= "win" then
+          log("gen2 ghost '%s' survived (result=%s)", tostring(ghost.rec.name), tostring(result))
+          return  -- ghost wins/keeps hunting; nothing reported (see Gen 1's same 0.12.0 rule)
+        end
+        -- Beaten. The engine can't record that for us (no `event` on the
+        -- trainer struct, deliberately -- see the GEN 2 spawning section
+        -- comment) -- both halves are ours: the flag, then re-deriving what
+        -- the ghost becomes from it.
+        local sv = liveGame and liveGame.save
+        if sv then
+          local ok, err = pcall(function() Flags.set(sv, defeatFlagName(ghost.rec)) end)
+          log("gen2 ghost '%s' defeated -- Flags.set ok=%s err=%s",
+            tostring(ghost.rec.name), tostring(ok), tostring(err))
+        end
+        refreshGen2Ghost(liveGame, ghost)
+        queueOnlineReport(ghost.rec, "loss")
+      end)
+    end)
   end
 
   -- =====================================================================
@@ -1459,6 +2450,73 @@ return function(mod)
     else
       log("queueScript refused (%s) -- will retry", tostring(err))
     end
+  end
+
+  -- FRIENDLY ghost interact -- no battle, no script, just a direct TextBox
+  -- (and, on the first visit only, a gift item). Shared between both
+  -- generations (called from ghostStep's facing+interact loop on Gen 1 and
+  -- from a mirrored poll in gen2Step on Gen 2) since the logic itself has
+  -- nothing generation-specific in it beyond Bag/Flags, which already are.
+  --
+  -- ONE flag (friendlyMetFlagName) does double duty: which dialogue line to
+  -- show, AND whether the item's already been claimed by this save -- the
+  -- maintainer's decision was a ONE-TIME gift tracked per receiving save,
+  -- and "have we met" is exactly that same one-time transition. If the
+  -- item exists but the receiving save's bag is full, the flag is
+  -- deliberately NOT set -- the visit doesn't "complete" (same as a
+  -- vanilla NPC's own "make room" gift gate), so the next interact retries
+  -- instead of silently losing the gift forever.
+  local function engageFriendlyGhost(game, rec, mapId, gx, gy, key)
+    engagedKey = key
+    local sv = game and game.save
+    if hasMetFriendly(game, rec) then
+      local line = rec.afterText and sayAs(rec, rec.afterText)
+        or (("%s has nothing\nmore to say."):format(rec.name or "RIVAL"))
+      game.stack:push(TextBox.new(game, line))
+      log("talked to friendly ghost '%s' (return visit) at %s:%s:%s", rec.name or "?", mapId, gx, gy)
+      return
+    end
+    -- GHOST REPORT visibility: report once per new (per-receiving-save)
+    -- visitor, same "commit at the moment of first real engagement" rule
+    -- the trainer path uses for its own "encounter" event -- no-op for a
+    -- local (non-downloaded) ghost. A friendly ghost has no win/loss
+    -- concept, so this is the only event it ever reports.
+    queueOnlineReport(rec, "encounter")
+    local line = rec.beforeText and sayAs(rec, rec.beforeText)
+      or (("Hi, I'm %s!"):format(rec.name or "RIVAL"))
+    local shouldMarkMet = true
+    -- Re-validate the gift item against isGiftableItem here, not just
+    -- trust rec.giftItem -- Bag.add itself does NOT check that an id is a
+    -- real known item (see its own source), so a downloaded ghost's
+    -- giftItem is exactly as untrusted as sprite/pic ever were and could
+    -- otherwise smuggle a key item, an HM, or a bogus id straight into a
+    -- receiving save's bag.
+    local giftItemDef = rec.giftItem and game.data.items and game.data.items[rec.giftItem]
+    if rec.giftItem and not isGiftableItem(rec.giftItem, giftItemDef) then
+      log("friendly ghost '%s' gift item '%s' failed re-validation -- dropped",
+        rec.name or "?", tostring(rec.giftItem))
+      rec.giftItem = nil
+    end
+    if rec.giftItem then
+      local qty = math.max(1, math.min(99, math.floor(tonumber(rec.giftQty) or 1)))
+      local gave = false
+      if sv then pcall(function() gave = Bag.add(sv, rec.giftItem, qty, game.data) end) end
+      if gave then
+        local itemName = (giftItemDef and giftItemDef.name) or rec.giftItem
+        line = line .. ("\fYou received\n%s x%d!"):format(itemName, qty)
+        log("friendly ghost '%s' gave %s x%d to this save", rec.name or "?", rec.giftItem, qty)
+      else
+        line = line .. "\fBut your bag is\nfull!\fCome back once\nyou have room."
+        shouldMarkMet = false
+        log("friendly ghost '%s' item grant FAILED (bag full?) -- not marking met, will retry",
+          rec.name or "?")
+      end
+    end
+    if shouldMarkMet and sv then
+      pcall(function() Flags.set(sv, friendlyMetFlagName(rec)) end)
+    end
+    game.stack:push(TextBox.new(game, line))
+    log("talked to friendly ghost '%s' (first meeting) at %s:%s:%s", rec.name or "?", mapId, gx, gy)
   end
 
   -- GHOST SIGHT: the vanilla trainer mechanic, v2 -- rebuilt around the
@@ -1683,7 +2741,75 @@ return function(mod)
 
   local lastMapId  -- detects map transitions so we (re)spawn ghosts for the new map
 
+  -- GEN 2's per-tick job: map-transition (re)spawn, poll online jobs, and
+  -- re-derive ghost state when REPEATABLE/GHOST COLLISION actually change
+  -- (so a flip applies live to ghosts already spawned, same "derived, never
+  -- baked" rule as spawnOneGen2Ghost/refreshGen2Ghost). No sight/battle
+  -- polling here at all -- World:checkTrainerBattle (engine-driven) and the
+  -- GEN 2 EVENT WIRING above handle that entirely.
+  local gen2LastMapId
+  local gen2LastRepeatable, gen2LastCollision
+  local function gen2Step(game, dt)
+    local w = world()
+    if not w then return end
+    local cur = w:current()
+    if not (cur and cur.mapId) then return end
+    if cur.mapId ~= gen2LastMapId then
+      gen2LastMapId = cur.mapId
+      spawnGhostsForGen2Map(game, cur.mapId)
+      startOnlineNearbyFetch(game, cur.mapId)
+    end
+    pollOnlineJobs(game)
+    local rep = mod.options:get("ghost_repeatable") == true
+    local col = mod.options:get("ghost_collision") == true
+    if gen2LastRepeatable == nil then
+      gen2LastRepeatable, gen2LastCollision = rep, col
+    elseif rep ~= gen2LastRepeatable or col ~= gen2LastCollision then
+      gen2LastRepeatable, gen2LastCollision = rep, col
+      for _, ghost in pairs(gen2Ghosts) do refreshGen2Ghost(game, ghost) end
+    end
+
+    -- FRIENDLY ghosts: manual facing+interact poll. They're spawned as
+    -- plain non-trainer objects with no scriptKey at all (see
+    -- spawnOneGen2Ghost's friendly branch), so nothing native ever
+    -- dispatches an interaction for them -- mirrors Gen 1's own
+    -- facing+interact loop in ghostStep exactly, just using liveGen2Npc's
+    -- id-based lookup (cellX/cellY, confirmed field names from the
+    -- ssn_gen2_spike's own live status dump) instead of Gen 1's name-based
+    -- mod.world:npc().
+    local list = mapGhosts[cur.mapId]
+    if list and #list > 0 and cur.x and cur.y then
+      local d = cur.facing and FACE_DELTA[normalizeDir(cur.facing)]
+      local fx, fy = d and (cur.x + d[1]) or nil, d and (cur.y + d[2]) or nil
+      local facedRec, facedKey
+      if fx then
+        for _, entry in ipairs(list) do
+          if entry.rec.ghostType == "friendly" and entry.npcId then
+            local npc = liveGen2Npc(w, entry.npcId)
+            if npc and npc.cellX == fx and npc.cellY == fy then
+              facedRec = entry.rec
+              facedKey = cur.mapId .. ":" .. fx .. ":" .. fy
+              break
+            end
+          end
+        end
+      end
+      if not facedRec then
+        engagedKey = nil
+      elseif facedKey ~= engagedKey then
+        -- nil (no readable input source, see interactPressed's own
+        -- comment) falls through to engage rather than getting stuck --
+        -- matches Gen1's ghostStep, which only ever skips on an explicit
+        -- false ("facing it, but hasn't pressed yet").
+        if interactPressed(game) ~= false then
+          engageFriendlyGhost(game, facedRec, cur.mapId, fx, fy, facedKey)
+        end
+      end
+    end
+  end
+
   local function ghostStep(game, dt)
+    if IS_GEN2 then gen2Step(game, dt); return end
     local w = world()
     if not w then return end
     local cur = w:current()
@@ -1713,8 +2839,10 @@ return function(mod)
     -- GHOST SIGHT is unconditional for every ghost that hasn't been defeated
     -- yet -- it's no longer an opt-in mode, it's just how a live ghost
     -- behaves. A defeated ghost is skipped here entirely; it stops hunting.
+    -- A FRIENDLY ghost never hunts at all -- interact-only, see the facing
+    -- loop below.
     for _, entry in ipairs(list) do
-      if not isDefeated(game, entry.rec) then
+      if entry.rec.ghostType ~= "friendly" and not isDefeated(game, entry.rec) then
         sightStep(game, w, cur.mapId, entry, cur, dt or 0)
       end
     end
@@ -1758,7 +2886,9 @@ return function(mod)
       return  -- facing a ghost, but hasn't pressed the button yet
     end
 
-    if facedDefeated then
+    if facedRec.ghostType == "friendly" then
+      engageFriendlyGhost(game, facedRec, cur.mapId, fx, fy, facedKey)
+    elseif facedDefeated then
       engageGhost(game, facedRec, cur.mapId, fx, fy, facedKey)
     elseif sightAlerted[facedName] then
       -- A GHOST SIGHT sequence for this exact ghost is in flight, or just
@@ -1809,7 +2939,7 @@ return function(mod)
   -- cancel path (B only backspaces), so this is the way out if the player
   -- changes their mind mid-typing.
   -- =====================================================================
-  local function finalizeSend(game, cur, beforeText, afterText, password)
+  local function finalizeSend(game, cur, ghostType, beforeText, afterText, password, giftItem, giftQty)
     local s = loadStorage()
     local origin = saveOriginId(game)
     local replaced = 0
@@ -1820,6 +2950,14 @@ return function(mod)
       end
     end
     local sprite, pic = selectedSprite()
+    -- A FRIENDLY ghost has no battle at all, so no party is captured --
+    -- Gen 2's party is captured already roster-shaped (see gen2PartyRoster)
+    -- so it's battle-ready as stored; Gen 1 keeps the raw deepcopy it
+    -- always used, converted at battle time by injectTrainer.
+    local party
+    if ghostType ~= "friendly" then
+      party = IS_GEN2 and (gen2PartyRoster(game) or {}) or deepcopy(game.save.party)
+    end
     local rec = {
       id        = s.nextId,
       origin    = origin,
@@ -1828,13 +2966,22 @@ return function(mod)
       x         = cur.x,
       y         = cur.y,
       facing    = cur.facing,
-      party     = deepcopy(game.save.party),
+      ghostType = ghostType,
+      party     = party,
       createdAt = os.time and os.time() or 0,
       beforeText = (beforeText ~= "" and beforeText) or nil,
       afterText  = (afterText ~= "" and afterText) or nil,
       sprite     = sprite,
       pic        = pic,
       password   = password or "",
+      game       = RECORD_GAME,
+      -- The item was already deducted from the SENDER's own bag the moment
+      -- they picked it (see askLeaveItem) -- these two fields are just what
+      -- a receiving save's first visit hands out, tracked per-receiving-save
+      -- via a Flags marker so it's a one-time gift, not an unlimited one
+      -- (maintainer's explicit call).
+      giftItem  = giftItem,
+      giftQty   = giftItem and giftQty or nil,
     }
     s.nextId = s.nextId + 1
     s.ghosts[#s.ghosts + 1] = rec
@@ -1843,10 +2990,10 @@ return function(mod)
     -- knows this save's current password without re-sending.
     s.passwords[origin] = rec.password
     markDirty()
-    log("captured ghost #%d '%s' at map=%s (%s,%s) party=%d dialogue=%s/%s sprite=%s password=%s (replaced %d previous)",
-      rec.id, rec.name, tostring(rec.mapId), tostring(rec.x), tostring(rec.y), #rec.party,
-      tostring(rec.beforeText ~= nil), tostring(rec.afterText ~= nil), tostring(sprite),
-      tostring(rec.password ~= ""), replaced)
+    log("captured ghost #%d '%s' type=%s at map=%s (%s,%s) party=%s dialogue=%s/%s sprite=%s gift=%s password=%s (replaced %d previous)",
+      rec.id, rec.name, tostring(ghostType), tostring(rec.mapId), tostring(rec.x), tostring(rec.y),
+      tostring(party and #party or 0), tostring(rec.beforeText ~= nil), tostring(rec.afterText ~= nil),
+      tostring(sprite), tostring(giftItem or "none"), tostring(rec.password ~= ""), replaced)
     startOnlineUpload(game, rec)  -- no-op if OFFLINE MODE is on; async either way
     local msg = replaced > 0
       and "Your old ghost was\nrecalled.\f%s now waits\nhere for other\nworlds to find."
@@ -1860,6 +3007,9 @@ return function(mod)
     if not onlineModeOn() then
       msg = msg .. "\fOFFLINE MODE is on,\nso this ghost stays\non this machine."
     end
+    -- The overleveled-team heads-up now lives at the FRONT of sendSelf's
+    -- flow instead (yes/no gate before any dialogue prompts), not appended
+    -- here after the fact -- see sendSelf.
     game.stack:push(TextBox.new(game, msg))
   end
 
@@ -1870,20 +3020,20 @@ return function(mod)
   -- visible to downloaders whose own remembered password matches exactly.
   -- Prefilled with whatever this save last set, so repeat sends can just
   -- say no and keep reusing it without retyping.
-  local function askPassword(game, cur, beforeText, afterText)
+  local function askPassword(game, cur, ghostType, beforeText, afterText, giftItem, giftQty)
     local s = loadStorage()
     local current = s.passwords[saveOriginId(game)] or ""
     game.stack:push(TextBox.new(game, "Set an online\npassword?", function()
       game.stack:push(ChoiceBox.new(game, function(yes)
         if not yes then
-          finalizeSend(game, cur, beforeText, afterText, current)
+          finalizeSend(game, cur, ghostType, beforeText, afterText, current, giftItem, giftQty)
           return
         end
         game.stack:push(NamingScreen.new(game, {
           title   = "ONLINE PASSWORD",
           maxLen  = DIALOGUE_MAX_LEN,
           default = current,
-          onDone  = function(text) finalizeSend(game, cur, beforeText, afterText, text) end,
+          onDone  = function(text) finalizeSend(game, cur, ghostType, beforeText, afterText, text, giftItem, giftQty) end,
         }))
       end, { defaultNo = true, noSound = true }))
     end))
@@ -1939,29 +3089,102 @@ return function(mod)
     game.stack:push(TextBox.new(game, "Checking the\nnetwork..."))
   end
 
+  -- FRIENDLY ghosts only. Optional: leave one item, once, subtracted from
+  -- the SENDER's own bag right here (the receiving save gets its copy
+  -- later, on first interact -- see engageFriendlyGhost). Bag.order(save)
+  -- is acquisition-ordered and already excludes badges; isGiftableItem
+  -- further excludes key items and HMs (TMs ARE allowed, maintainer's
+  -- explicit call). QuantityBox is a real, directly-pushable widget
+  -- (confirmed from src/ui/QuantityBox.lua, same "construct and
+  -- game.stack:push it" pattern as ListMenu/TextBox/ChoiceBox elsewhere in
+  -- this file) -- new to this mod, like ListMenu was, so worth extra
+  -- attention in testing.
+  local function askLeaveItem(game, cur, ghostType, beforeText, afterText)
+    game.stack:push(TextBox.new(game, "Leave an item for\nthem to find?", function()
+      game.stack:push(ChoiceBox.new(game, function(yes)
+        if not yes then
+          askPassword(game, cur, ghostType, beforeText, afterText, nil, nil)
+          return
+        end
+        local rows = {}
+        pcall(function()
+          for _, id in ipairs(Bag.order(game.save)) do
+            local item = game.data.items and game.data.items[id]
+            if isGiftableItem(id, item) then
+              rows[#rows + 1] = { label = (item and item.name) or id,
+                right = "x" .. tostring(game.save.inventory[id]), value = id }
+            end
+          end
+        end)
+        if #rows == 0 then
+          game.stack:push(TextBox.new(game, "You have nothing\neligible to leave.", function()
+            askPassword(game, cur, ghostType, beforeText, afterText, nil, nil)
+          end))
+          return
+        end
+        local picker
+        picker = ListMenu.new(game, "LEAVE WHICH ITEM?", rows, {
+          onChoose = function(item, m)
+            m:close()
+            local have = tonumber(game.save.inventory[item.value]) or 1
+            game.stack:push(QuantityBox.new(game, {
+              max = have, start = 1,
+              onDone = function(qty)
+                if not qty then
+                  askPassword(game, cur, ghostType, beforeText, afterText, nil, nil)
+                  return
+                end
+                Bag.remove(game.save, item.value, qty)
+                log("gift item chosen for friendly ghost: %s x%d (deducted from sender's bag)",
+                  item.value, qty)
+                askPassword(game, cur, ghostType, beforeText, afterText, item.value, qty)
+              end,
+            }))
+          end,
+          onCancel = function()
+            askPassword(game, cur, ghostType, beforeText, afterText, nil, nil)
+          end,
+        })
+        game.stack:push(picker)
+      end, { defaultNo = true, noSound = true }))
+    end))
+  end
+
   -- ChoiceBox renders only a YES/NO selector, no text of its own (confirmed
   -- from source) -- it's always paired with a preceding TextBox for the
   -- question, same as vrm_pokemon_bank's own RELEASE confirmation does.
-  local function askAfterText(game, cur, beforeText)
-    game.stack:push(TextBox.new(game, "Add an after-\nbattle line too?", function()
+  -- Wording and the NEXT step both branch on ghostType: a FRIENDLY ghost's
+  -- "after" line is what plays on a RETURN visit (see engageFriendlyGhost),
+  -- not an after-battle line, and it leads into askLeaveItem instead of
+  -- straight to the password step.
+  local function askAfterText(game, cur, ghostType, beforeText)
+    local friendly = ghostType == "friendly"
+    local prompt = friendly and "Add a different\nline for return\nvisits too?" or "Add an after-\nbattle line too?"
+    local title = friendly and "RETURN VISIT LINE" or "AFTER-BATTLE LINE"
+    local function proceed(afterText)
+      if friendly then askLeaveItem(game, cur, ghostType, beforeText, afterText)
+      else askPassword(game, cur, ghostType, beforeText, afterText, nil, nil) end
+    end
+    game.stack:push(TextBox.new(game, prompt, function()
       game.stack:push(ChoiceBox.new(game, function(yes)
-        if not yes then askPassword(game, cur, beforeText, ""); return end
+        if not yes then proceed(""); return end
         game.stack:push(NamingScreen.new(game, {
-          title   = "AFTER-BATTLE LINE",
+          title   = title,
           maxLen  = DIALOGUE_MAX_LEN,
           default = "",
-          onDone  = function(text) askPassword(game, cur, beforeText, text) end,
+          onDone  = function(text) proceed(text) end,
         }))
       end, { defaultNo = true, noSound = true }))
     end))
   end
 
-  local function askBeforeText(game, cur)
+  local function askBeforeText(game, cur, ghostType)
+    local title = (ghostType == "friendly") and "GREETING LINE" or "BEFORE-BATTLE LINE"
     game.stack:push(NamingScreen.new(game, {
-      title   = "BEFORE-BATTLE LINE",
+      title   = title,
       maxLen  = DIALOGUE_MAX_LEN,
       default = "",
-      onDone  = function(text) askAfterText(game, cur, text) end,
+      onDone  = function(text) askAfterText(game, cur, ghostType, text) end,
     }))
   end
 
@@ -1972,47 +3195,251 @@ return function(mod)
       game.stack:push(TextBox.new(game, "Can't send a ghost\nfrom here.\fTry again out in\nthe overworld."))
       return
     end
-    if type(game.save.party) ~= "table" or #game.save.party == 0 then
+    local ghostType = ghostTypeMode()
+    local friendly = ghostType == "friendly"
+    -- A FRIENDLY ghost has no battle, so no party is needed to send one.
+    if not friendly and (type(game.save.party) ~= "table" or #game.save.party == 0) then
       game.stack:push(TextBox.new(game, "You have no\nPOKéMON to send!"))
       return
     end
-    if not SEND_ALLOWED_MAPS[cur.mapId] then
-      log("send blocked: map %s is not an allowed send location", tostring(cur.mapId))
+    local allowed
+    if IS_GEN2 then
+      -- Gold's own maps.lua carries the cart's own `environment` field --
+      -- runtime check against real data instead of a maintained id list.
+      -- POKETRAINER: route/cave/dungeon, no towns, no building interiors
+      -- (confirmed: ROUTE 53 / CAVE 39 / DUNGEON 31 = 123 allowed of 368;
+      -- blocked = TOWN 23 / GATE 24 / INDOOR 198). FRIENDLY additionally
+      -- allows TOWN/GATE (maintainer's call: "allow towns and cities, but
+      -- not indoors") since it never ambushes anyone.
+      -- Root-caused live (2026-08-14, real player report): a diagnostic
+      -- here once caught `game.data.maps` throwing "attempt to index field
+      -- 'maps' (a nil value)" on Gold -- see dataTable's comment near the
+      -- top of the file for why (a mod's own game.data doesn't get
+      -- Gen2Compat's data.maps -> data.gen2Maps rename for free). Fixed by
+      -- routing through dataTable; kept a lighter diagnostic here in case
+      -- something else is still off.
+      local ok, def = pcall(function() return dataTable(game, "maps")[cur.mapId] end)
+      local env = ok and type(def) == "table" and def.environment
+      if friendly then
+        allowed = env == "ROUTE" or env == "CAVE" or env == "DUNGEON" or env == "TOWN" or env == "GATE"
+      else
+        allowed = env == "ROUTE" or env == "CAVE" or env == "DUNGEON"
+      end
+      if not allowed then
+        log("gen2 send check failed: mapId=%s ghostType=%s ok=%s defType=%s env=%s def=%s",
+          tostring(cur.mapId), ghostType, tostring(ok), type(def), tostring(env),
+          type(def) == "table" and shallowDump(def) or tostring(def))
+      end
+    else
+      allowed = (friendly and FRIENDLY_ALLOWED_MAPS or SEND_ALLOWED_MAPS)[cur.mapId] == true
+    end
+    if not allowed then
+      log("send blocked: map %s is not an allowed send location (ghostType=%s)", tostring(cur.mapId), ghostType)
       game.stack:push(TextBox.new(game, "Unable to send ghost.\nInvalid location."))
       return
     end
-    game.stack:push(TextBox.new(game, "Include dialogue\nwith this ghost?", function()
-      game.stack:push(ChoiceBox.new(game, function(yes)
-        if yes then
-          askBeforeText(game, cur)
-        else
-          askPassword(game, cur, "", "")
+
+    local function askDialogue()
+      game.stack:push(TextBox.new(game, "Include dialogue\nwith this ghost?", function()
+        game.stack:push(ChoiceBox.new(game, function(yes)
+          if yes then
+            askBeforeText(game, cur, ghostType)
+          elseif friendly then
+            askLeaveItem(game, cur, ghostType, "", "")
+          else
+            askPassword(game, cur, ghostType, "", "", nil, nil)
+          end
+        end, { defaultNo = true, noSound = true }))
+      end))
+    end
+
+    -- LEVEL PROTECTION heads-up -- POKETRAINER only, a FRIENDLY ghost has no
+    -- party/levels for this to mean anything about. FIRST in the sequence
+    -- for the trainer case (2026-08-14 follow-up) so an overleveled sender
+    -- sees it and gets a real yes/no choice to back out before investing
+    -- any time in the dialogue prompts, rather than finding out as a
+    -- footnote after everything's already typed. Reads game.save.party
+    -- directly (not yet a captured rec at this point) -- works on both
+    -- generations, since a save-party mon's `.level` exists either way.
+    -- Uses filterCapForMap (REGION LOCK's own cap, honoring EXEMPT/BRANCH
+    -- overrides) regardless of the SENDER's own GHOST LEVELING mode -- this
+    -- warns about how a REGION LOCK viewer elsewhere would see the ghost,
+    -- not about the sender's own setting.
+    if not friendly then
+      local cap = filterCapForMap(game, cur.mapId)
+      if cap then
+        local partyMax = 0
+        for _, mon in ipairs(game.save.party) do
+          if type(mon.level) == "number" and mon.level > partyMax then partyMax = mon.level end
         end
-      end, { defaultNo = true, noSound = true }))
-    end))
+        if partyMax > cap then
+          local warnMsg = ("Your team is above\nthis area's cap of\nLv%d.\fPlayers with LEVEL\nPROTECTION on won't\nsee this ghost.\fSend it anyway?"):format(cap)
+          game.stack:push(TextBox.new(game, warnMsg, function()
+            game.stack:push(ChoiceBox.new(game, function(yes)
+              if yes then askDialogue()
+              else game.stack:push(TextBox.new(game, "Ghost not sent.")) end
+            end, { defaultNo = true, noSound = true }))
+          end))
+          return
+        end
+      end
+    end
+
+    askDialogue()
   end
 
-  -- Add "SEND GHOST" and "ONLINE PASSWORD" to the Start menu (decorate-
-  -- after-next, like the Bank's PC-menu row). Insert both before EXIT if
-  -- present; otherwise append. ONLINE PASSWORD is separate from SEND GHOST
-  -- specifically so a player who only wants to DOWNLOAD ghosts (never sends
-  -- one) can still join/leave a private password pool.
+  -- =====================================================================
+  -- SILPH SCOPE NET hub menu (2026-08-14, replaces the three separate
+  -- Start Menu rows this mod used to add). One row on the Start Menu now;
+  -- selecting it opens a mod.ui.ListMenu with everything else inside.
+  --
+  -- ListMenu.new(game, title, items, opts) is a real, directly-pushable
+  -- widget (confirmed from src/ui/ListMenu.lua: opaque full-screen state,
+  -- B auto-pops itself and calls opts.onCancel, A calls opts.onChoose(item,
+  -- self)) -- no mod.content.screens:register needed, same "construct and
+  -- game.stack:push it" pattern this file already uses for TextBox/
+  -- ChoiceBox/NamingScreen. Confirmed live for a scrollable sprite-style
+  -- list only via the bundled example_dexnav mod and this project's own
+  -- 2026-08-10 GHOST SPRITE spike (later reverted for an options dropdown,
+  -- see gen1recomp-modding memory) -- this is the first time THIS mod ships
+  -- it, so treat it as new/unverified until live-tested.
+  --
+  -- CONNECTION MODE and GHOST SPRITE are pickers: choosing either one pushes
+  -- a NESTED ListMenu on top rather than acting immediately. Pressing B on
+  -- that nested list pops it for free (ListMenu's own behavior) and reveals
+  -- the hub underneath -- no manual back-navigation needed. After a pick,
+  -- the hub's OWN items table is rebuilt in place (hubMenu.items = ...) so
+  -- its "right" labels reflect the new value the moment you're back,
+  -- without needing to reopen the whole menu.
+  -- =====================================================================
+  -- "CONNECTION MODE", then "GHOST MODE", were the original labels here --
+  -- settled on plain "MODE" (2026-08-14) since the fuller versions plus the
+  -- live value badly overlapped in the list (see fitRight/HUB_ROW_BUDGET
+  -- above); "MODE" alone leaves the most room for that value.
+  local function hubItems()
+    return {
+      { label = "MODE", right = fitRight("MODE", connectionModeLabel()), value = "mode" },
+      { label = "SEND GHOST", value = "send" },
+      { label = "GHOST SPRITE", right = fitRight("GHOST SPRITE", spriteLabel()), value = "sprite" },
+      { label = "GHOST REPORT", value = "report" },
+      { label = "GHOST TYPE", right = fitRight("GHOST TYPE", ghostTypeLabel()), value = "type" },
+      { label = "ONLINE PASSWORD", value = "password" },
+    }
+  end
+
+  local function openConnectionModePicker(game, hubMenu)
+    local items = {
+      { label = "LEVEL/ZONE", value = "filter" },
+      { label = "SCALE TO PLAYER", value = "scale" },
+      { label = "OFF", value = "off" },
+    }
+    local picker
+    picker = ListMenu.new(game, "CONNECTION MODE", items, {
+      onChoose = function(item, m)
+        setConnectionMode(item.value)
+        log("connection mode set to '%s'", tostring(item.value))
+        m:close()
+        hubMenu.items = hubItems()
+      end,
+    })
+    game.stack:push(picker)
+  end
+
+  local function openSpritePicker(game, hubMenu)
+    local list = IS_GEN2 and GEN2_GHOST_SPRITES or GHOST_SPRITES
+    local items = { { label = IS_GEN2 and "CHRIS (DEFAULT)" or "RED (DEFAULT)", value = "" } }
+    for _, s in ipairs(list) do items[#items + 1] = { label = s.label, value = s.key } end
+    local picker
+    picker = ListMenu.new(game, "GHOST SPRITE", items, {
+      onChoose = function(item, m)
+        setSpriteKey(item.value)
+        log("ghost sprite set to '%s'", item.value ~= "" and item.value or "(default)")
+        m:close()
+        hubMenu.items = hubItems()
+      end,
+    })
+    game.stack:push(picker)
+  end
+
+  local function openGhostTypePicker(game, hubMenu)
+    local items = {
+      { label = "POKETRAINER", value = "trainer" },
+      { label = "FRIENDLY", value = "friendly" },
+    }
+    local picker
+    picker = ListMenu.new(game, "GHOST TYPE", items, {
+      onChoose = function(item, m)
+        setGhostType(item.value)
+        log("ghost type set to '%s'", tostring(item.value))
+        m:close()
+        hubMenu.items = hubItems()
+      end,
+    })
+    game.stack:push(picker)
+  end
+
+  local function openHub(game)
+    local menu
+    menu = ListMenu.new(game, "SILPH SCOPE NET", hubItems(), {
+      onChoose = function(item, m)
+        if item.value == "send" then
+          m:close(); sendSelf(game)
+        elseif item.value == "report" then
+          m:close(); showGhostReport(game)
+        elseif item.value == "password" then
+          m:close(); setOnlinePassword(game)
+        elseif item.value == "mode" then
+          openConnectionModePicker(game, m)
+        elseif item.value == "sprite" then
+          openSpritePicker(game, m)
+        elseif item.value == "type" then
+          openGhostTypePicker(game, m)
+        end
+      end,
+    })
+    game.stack:push(menu)
+  end
+
+  -- Add "SILPH NET" to the Start menu (decorate-after-next, like the
+  -- Bank's PC-menu row) -- grouped next to the engine's own native "MODS"
+  -- row (2026-08-14, maintainer's request) instead of tucked in wherever
+  -- "EXIT" was assumed to be. Confirmed from src/ui/StartMenu.lua: the real
+  -- native rows are POKéDEX/BAG/(party)/OPTION/LINK/**MODS** (gated on at
+  -- least one discovered mod, opens the mod manager)/**QUIT** -- "EXIT" was
+  -- never a real label here at all, so the old insertBefore(out, "EXIT",
+  -- row) call was silently falling through to mod.ui's own append-if-not-
+  -- found behavior this whole time (harmless, since it landed at the end
+  -- either way, but not what it looked like it was doing). This mirrors the
+  -- exact hand-rolled insert/fallback pattern gen1_cheat_menu already uses
+  -- on this same install ("MOD MENUS -> Cheat Menu -> MODS") rather than
+  -- trusting mod.ui.insertBefore's behavior for a label it's never been
+  -- asked to match before.
+  --
+  -- Label shortened from "SILPH SCOPE NET" (2026-08-14 follow-up) -- 15
+  -- characters stood out visibly longer than every native row it sits
+  -- beside (POKéDEX/BAG/OPTION/LINK/MODS/QUIT are all 4-7). The hub SCREEN
+  -- itself (openHub, below) keeps the full "SILPH SCOPE NET" as its own
+  -- title -- that has a whole screen width to work with, not a menu row
+  -- squeezed against five others.
   mod.hooks:wrap("ui.start_menu.items", function(next_, game, items)
     local out = next_(game, items)
     if type(out) ~= "table" then return out end
-    local rows = {
-      { label = "SEND GHOST",      onSelect = function() sendSelf(game) end },
-      { label = "GHOST REPORT",    onSelect = function() showGhostReport(game) end },
-      { label = "ONLINE PASSWORD", onSelect = function() setOnlinePassword(game) end },
-    }
-    if mod.ui and mod.ui.insertBefore then
-      for _, row in ipairs(rows) do
-        local inserted = mod.ui.insertBefore(out, "EXIT", row)
-        if type(inserted) == "table" then out = inserted end
+    local row = { label = "SILPH NET", onSelect = function() openHub(game) end }
+    local function insertBeforeLabel(list, label)
+      local decorated, inserted = {}, false
+      for _, existing in ipairs(list) do
+        local existingLabel = type(existing) == "table" and existing.label or nil
+        if not inserted and existingLabel == label then
+          decorated[#decorated + 1] = row
+          inserted = true
+        end
+        decorated[#decorated + 1] = existing
       end
-      return out
+      return inserted and decorated or nil
     end
-    for _, row in ipairs(rows) do out[#out + 1] = row end
+    local decorated = insertBeforeLabel(out, "MODS") or insertBeforeLabel(out, "QUIT")
+    if decorated then return decorated end
+    out[#out + 1] = row  -- neither anchor found -- last resort, bare append
     return out
   end)
 
@@ -2033,18 +3460,23 @@ return function(mod)
     local ghosts = activeGhosts(game)
     local defeatedCount = 0
     for _, rec in ipairs(ghosts) do
-      injectTrainer(game, rec)
+      if not IS_GEN2 then injectTrainer(game, rec) end  -- gen2's equivalent injection happens per-spawn, see gen2InjectGhost
       if isDefeated(game, rec) then defeatedCount = defeatedCount + 1 end
     end
-    log("save.loaded: %d ghost(s) in file, %d active (not this save's own), %d already defeated",
-      total, #ghosts, defeatedCount)
+    log("save.loaded: %d ghost(s) in file, %d active (not this save's own, generation=%d), %d already defeated",
+      total, #ghosts, GENERATION, defeatedCount)
     local w = world()
     local cur = w and w:current()
     log("save.loaded: world:current -> %s", shallowDump(cur))
     if cur and cur.mapId then
-      spawnGhostsForMap(game, cur.mapId)
+      if IS_GEN2 then
+        spawnGhostsForGen2Map(game, cur.mapId)
+        gen2LastMapId = cur.mapId
+      else
+        spawnGhostsForMap(game, cur.mapId)
+        lastMapId = cur.mapId
+      end
       startOnlineNearbyFetch(game, cur.mapId)
-      lastMapId = cur.mapId
     end
   end)
 
@@ -2052,5 +3484,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.12.1)")
+  log("loaded (v0.14.0, generation=%d)", GENERATION)
 end

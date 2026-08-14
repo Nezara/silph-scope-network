@@ -1,13 +1,14 @@
 {
   "id": "silphscope_network",
   "name": "SilphScope-Network",
-  "version": "0.12.1",
+  "version": "0.14.0",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
   "category": "MECHANIC",
   "game_version": ">=0.0.0-0 <2.0.0",
   "github": "Nezara/silph-scope-network",
+  "gen2compat": true,
   "priority": 100,
   "affects_link": false,
   "permissions": [
@@ -16,5 +17,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "conflicts": [],
-  "description": "Send your current character (map position + party, plus a choice of 45 trainer looks -- every class, gym leader, Elite Four member, rival stage and Prof. Oak) to a shared file that lives outside any save, and by default also to a small server (optionally password-gated to a private pool) so other players can find it too -- turn on OFFLINE MODE to keep a save local-only. Other saves find your sent character standing where you left them: it spots you and forces a battle, or you can walk up and interact with it yourself, with optional dialogue you wrote. Once beaten, interact with it to hear its after-battle line again (or fight again if repeatable battles are on). Test build."
+  "description": "Send your current character to a shared file that lives outside any save, and by default also to a small server (optionally password-gated to a private pool) so other players can find it too -- turn on OFFLINE MODE to keep a save local-only. GHOST TYPE picks the flavor: PokeTrainer (a battle ghost with your party -- it spots you and forces a fight, or you can walk up and interact) or Friendly (no battle, just a talking NPC of yourself that can leave a visitor a one-time item from your bag). MODE hides overleveled PokeTrainer ghosts from low-level areas by default, or scales them to your own level instead. Now runs on Pokemon Gold (Beta) too, with its own sprite set and send-location rules. Test build."
 }
