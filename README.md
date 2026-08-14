@@ -251,6 +251,3 @@ and keep their existing identity.
   species/level/moves.
 - If a download result arrives after you've already left the map it was
   requested for, it's discarded rather than spawned somewhere wrong.
-- GHOST REPORT's tallies are unauthenticated and technically forgeable —
-  fine for bragging-rights numbers on a small test build, not load-bearing
-  for anything.
