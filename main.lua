@@ -1063,6 +1063,16 @@ return function(mod)
     end
     if #slots == 0 then return nil end
     local pic = rec.pic or PLAYER_PIC
+    -- Money pays out on the GENUINE first win only. injectTrainer runs
+    -- fresh before every battle -- including a REPEATABLE rematch
+    -- (engageGhost re-injects before re-running battleSequenceRows) -- and
+    -- isDefeated's flag only ever flips true the instant the FIRST win's
+    -- own set_flag row runs, mid-battle-sequence. So checking it here,
+    -- before THIS particular fight starts, cleanly distinguishes "first
+    -- encounter" (not yet defeated -> real payout) from "rematch" (already
+    -- defeated -> baseMoney 0, no repeat payout) with no separate
+    -- bookkeeping needed.
+    local alreadyDefeated = isDefeated(game, rec)
     game.data.trainers[class] = {
       id       = class,
       index    = -1,
@@ -1070,7 +1080,7 @@ return function(mod)
       pic      = pic,
       parties  = { slots },
       aiMods   = { 1 },
-      baseMoney = baseMoneyForPic(game, pic),
+      baseMoney = alreadyDefeated and 0 or baseMoneyForPic(game, pic),
       source   = MOD_ID,
     }
     return class
@@ -2309,6 +2319,19 @@ return function(mod)
   -- =====================================================================
   if IS_GEN2 then
     local gen2PendingGhost  -- the gen2Ghosts[] entry whose battle is currently in flight
+    -- Money-once fix (see Gen 1's injectTrainer for the equivalent): Gen 2
+    -- can't just zero out baseMoney for a rematch the way Gen 1 does,
+    -- because baseMoney lives on the SHARED class record (BEAUTY, GRUNTM,
+    -- ...) that real cart trainers of that class use too -- zeroing it
+    -- would silence THEIR payouts as well. So instead: snapshot the
+    -- player's money the instant a REPEAT engagement starts (only when
+    -- isDefeated is already true, i.e. this is a rematch, not the first
+    -- fight), and if the ghost loses again, roll the money back to that
+    -- snapshot right after the engine's own native payout has already
+    -- landed. Nothing else touches money mid-battle in this engine, so a
+    -- plain before/after snapshot is exact -- no need to reverse-engineer
+    -- Prize.ComputeTrainerReward's own formula.
+    local gen2RematchMoneyBefore
 
     pcall(function()
       mod.events:on("world.trainer_engaged", function(ev)
@@ -2317,8 +2340,15 @@ return function(mod)
         for _, ghost in pairs(gen2Ghosts) do
           if ghost.trainerStruct.member == member then
             gen2PendingGhost = ghost
-            log("gen2 ghost '%s' engaged (%s)", tostring(ghost.rec.name),
-              (ev and ev.sight) and "sight" or "interact")
+            gen2RematchMoneyBefore = nil
+            if isDefeated(liveGame, ghost.rec) then
+              local sv = liveGame and liveGame.save
+              local p = sv and type(sv.player) == "table" and sv.player
+              if p and type(p.money) == "number" then gen2RematchMoneyBefore = p.money end
+            end
+            log("gen2 ghost '%s' engaged (%s)%s", tostring(ghost.rec.name),
+              (ev and ev.sight) and "sight" or "interact",
+              gen2RematchMoneyBefore and " [rematch, money snapshotted]" or "")
             -- Battle is committed the moment the engine reports this, same
             -- "honest encounter" moment Gen 1 uses. No-op for a local ghost.
             queueOnlineReport(ghost.rec, "encounter")
@@ -2331,7 +2361,9 @@ return function(mod)
     pcall(function()
       mod.events:on("battle.ended", function(ev)
         local ghost = gen2PendingGhost
+        local moneyBefore = gen2RematchMoneyBefore
         gen2PendingGhost = nil
+        gen2RematchMoneyBefore = nil
         if not ghost then return end
         local result = ev and ev.result
         if result ~= "win" then
@@ -2347,6 +2379,39 @@ return function(mod)
           local ok, err = pcall(function() Flags.set(sv, defeatFlagName(ghost.rec)) end)
           log("gen2 ghost '%s' defeated -- Flags.set ok=%s err=%s",
             tostring(ghost.rec.name), tostring(ok), tostring(err))
+        end
+        if moneyBefore then
+          local p = sv and type(sv.player) == "table" and sv.player
+          if p and type(p.money) == "number" then
+            log("gen2 ghost '%s' was a REMATCH -- rolling money back %d -> %d (no repeat payout)",
+              tostring(ghost.rec.name), p.money, moneyBefore)
+            p.money = moneyBefore
+            -- Explain the rollback through the ghost's OWN after-battle
+            -- text rather than a separately-timed TextBox -- this rides the
+            -- exact same native display the real after-battle line already
+            -- uses (trainertext(WIN) reading texts[winKey], via the same
+            -- SEEN_BY_TRAINER_SCRIPT tail that plays after every native
+            -- battle), so there's no guessing about when the battle screen
+            -- has actually closed. If the sender wrote a real after-battle
+            -- line, the note appears as a second PAGE after it (\012, the
+            -- Gold text table's own page break -- confirmed against
+            -- gold/data/generated/text.lua); if they didn't (this ghost's
+            -- winText is still just the generic "has nothing more to say"
+            -- fallback from gen2InjectGhost), the note REPLACES that filler
+            -- outright rather than stacking a second, redundant page.
+            local okText, ow = pcall(function() return mod.world:overworld() end)
+            local texts = okText and ow and ow.text
+            local winKey = ghost.trainerStruct and ghost.trainerStruct.winText
+            if type(texts) == "table" and type(winKey) == "string" then
+              local note = "This ghost was\nalready defeated\nbefore -- no repeat\nmoney reward."
+              local hasRealAfterText = type(ghost.rec.afterText) == "string" and ghost.rec.afterText ~= ""
+              if hasRealAfterText and type(texts[winKey]) == "string" and texts[winKey] ~= "" then
+                texts[winKey] = texts[winKey] .. "\012" .. note
+              else
+                texts[winKey] = note
+              end
+            end
+          end
         end
         refreshGen2Ghost(liveGame, ghost)
         queueOnlineReport(ghost.rec, "loss")
@@ -3484,5 +3549,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.14.0, generation=%d)", GENERATION)
+  log("loaded (v0.14.1, generation=%d)", GENERATION)
 end

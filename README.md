@@ -1,5 +1,8 @@
-# Silph Scope Network (test build 0.14.0)
+# Silph Scope Network (test build 0.14.1)
 -- Created with AI/Vibe Coding--
+
+*0.14.1: fixed a repeatable-battle ghost paying out money on every rematch
+instead of just the first win.*
 
 Send your current character to another player online, either as an enemy
 trainer they can fight, or as a friendly NPC who just talks to them (and can
