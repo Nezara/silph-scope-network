@@ -246,8 +246,8 @@ and keep their existing identity.
 - **Red/Blue/Yellow**: downloaded ghosts don't carry exact IVs (DVs are
   overwritten by the engine's own trainer-battle construction, with no
   supported way around it) — only species/level/moves/nickname are exact.
-- **Gold (Beta)**: exact DVs (and therefore gender/shininess, which are
-  derived from them) DO carry through — full fidelity, not just
-  species/level/moves.
+- **Gold (Beta)**: DVs ARE exact, and because gender and shininess are
+  *derived* from DVs on this generation, those come through correctly too
+  — full fidelity
 - If a download result arrives after you've already left the map it was
   requested for, it's discarded rather than spawned somewhere wrong.
