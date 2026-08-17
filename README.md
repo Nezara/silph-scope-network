@@ -1,5 +1,18 @@
-# Silph Scope Network (test build 0.14.1)
+# Silph Scope Network (test build 0.15.0)
 -- Created with AI/Vibe Coding--
+
+*0.15.0: gen1recomp's mod sandbox. The engine no longer lets a mod touch
+`love.filesystem`, and the next release refuses to load one that tries, so all
+persistence moved to the supported `mod.storage` API. Existing ghosts,
+passwords, sprite choice and mode are imported automatically the first time you
+load a save. The manifest now also declares the `network` permission, which the
+engine has started genuinely enforcing for online mode.*
+
+*One behaviour change comes with it: `mod.storage` is scoped per save file, so
+the LOCAL ghost pool is no longer shared between your own saves. Online mode —
+which is on by default — is unaffected, because the server has always been the
+real shared pool. It only means an OFFLINE MODE ghost now stays in the save that
+sent it.*
 
 *0.14.1: fixed a repeatable-battle ghost paying out money on every rematch
 instead of just the first win.*

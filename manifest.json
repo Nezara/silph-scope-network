@@ -1,7 +1,7 @@
 {
   "id": "silphscope_network",
   "name": "SilphScope-Network",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -12,7 +12,8 @@
   "priority": 100,
   "affects_link": false,
   "permissions": [
-    "engine_internals"
+    "engine_internals",
+    "network"
   ],
   "dependencies": [],
   "optional_dependencies": [],

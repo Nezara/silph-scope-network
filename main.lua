@@ -23,7 +23,8 @@
 -- full writeup.
 --
 -- See README.md for what's confirmed working live vs. still first-cut.
--- Search the debug log (silphscope_network/debug.log) for "[silphscope_network]".
+-- Debug log: mod.storage key "debug_log", under
+-- <savedir>/mod_storage/<game>/<playthroughId>/silphscope_network/.
 
 local MOD_ID          = "silphscope_network"
 local STORAGE_DIR     = "silphscope_network"
@@ -537,30 +538,86 @@ return function(mod)
   -- Persistence -- copied from vrm_pokemon_bank's main.lua (same file
   -- discipline: portable fs, backup -> tmp witness -> swap, flush on save).
   -- =====================================================================
-  local function fs() return SaveData.portableFs() or love.filesystem end
+  -- REWRITTEN for the gen1recomp mod sandbox (engine 0.2.x). Every earlier
+  -- build wrote <savedir>/silphscope_network/ghosts.lua through
+  -- love.filesystem. That is gone: 0.2.0 rerouted it to a compat overlay with
+  -- a warning, and the engine author has said the next release refuses to load
+  -- a mod that touches love.filesystem at all -- along with io, os.getenv and
+  -- friends -- with no permission to re-open it, ever. Reaching the old path
+  -- through an engine internal (SaveData.persistenceFs / portableFs both hand
+  -- back a raw filesystem) works TODAY and is exactly the loophole that
+  -- statement closes, so it is deliberately not used below except for the
+  -- one-time read in legacyImport.
+  --
+  -- The supported replacement is mod.storage. The one thing it costs us: it is
+  -- scoped per game version AND per playthrough (src/mods/Storage.lua
+  -- Storage:_scope -> mod_storage/<version>/<playthroughId>/<modId>/), so the
+  -- local ghost pool is no longer shared between a player's own saves. ONLINE
+  -- MODE is unaffected -- the server has always been the real shared pool, and
+  -- it is on by default -- but an OFFLINE MODE ghost now only exists in the
+  -- save that sent it. Settings (spriteKey/connectionMode/ghostType) and the
+  -- per-save online passwords lose nothing by being per-playthrough.
+  local STORAGE_KEY = "ghosts"
+  local LOG_KEY     = "debug_log"
 
-  local function fileExists(name)
-    local ok, info = pcall(function() return fs().getInfo(name) end)
-    return ok and info ~= nil
+  -- mod.storage resolves its scope from a live game, and the entry chunk runs
+  -- long before there is one. `liveGame` is the mod's existing handle (set on
+  -- game.ready, see "Live game handle" below); it is hoisted up here because
+  -- everything in this block needs it.
+  local liveGame
+
+  -- Having a game is NOT the same as having a scope: game.ready fires before a
+  -- save is chosen, and Storage:_scope refuses until there is a playthrough id
+  -- ("not_in_playthrough"). context() is the cheap way to ask, and asking
+  -- rather than assuming is what stops an empty pre-save read being cached as
+  -- if it were the player's real data.
+  local function storageReady()
+    if not liveGame then return false end
+    local ok, ctx = pcall(function() return mod.storage:context(liveGame) end)
+    return ok and type(ctx) == "table"
   end
-  local function tryRead(name)
-    local ok, result = pcall(function() return fs().read(name) end)
-    if ok and type(result) == "string" then return result end
+
+  local function storageRead(key)
+    if not liveGame then return nil end
+    local ok, value = pcall(function() return mod.storage:read(liveGame, key) end)
+    if ok and type(value) == "table" then return value end
     return nil
   end
-  local function tryWrite(name, data)
-    local ok, result = pcall(function() return fs().write(name, data) end)
-    return ok and result ~= false
+
+  local function storageWrite(key, value)
+    if not liveGame then return false, "no playthrough yet" end
+    local ok, wrote, code, message = pcall(function()
+      return mod.storage:write(liveGame, key, value)
+    end)
+    if not ok then return false, tostring(wrote) end
+    if wrote == false then
+      return false, tostring(code or "?") .. " " .. tostring(message or "")
+    end
+    return true
   end
-  local function tryRemove(name)
-    pcall(function() local f = fs(); if f.remove then f.remove(name) end end)
-  end
-  local function readStorageFile(name)
-    if not fileExists(name) then return nil end
-    local raw = tryRead(name); if not raw then return nil end
-    local decoded = SaveSerializer.decode(raw)
-    if type(decoded) ~= "table" then return nil end
-    return decoded
+
+  -- One-time, read-only, self-retiring: pull a pre-0.15.0 ghosts.lua across so
+  -- an existing player keeps their ghosts, passwords, sprite and mode. This is
+  -- the single place the old raw-filesystem seam is still touched, it never
+  -- writes, and it stops mattering the moment the import has been stored once
+  -- -- so when a future engine closes that seam this just returns nil and a
+  -- fresh install starts empty, which is the correct behaviour anyway.
+  local function legacyImport()
+    local ok, resolved = pcall(function()
+      if type(SaveData.persistenceFs) ~= "function" then return nil end
+      return SaveData.persistenceFs()
+    end)
+    if not (ok and type(resolved) == "table" and type(resolved.read) == "function") then
+      return nil
+    end
+    for _, name in ipairs({ STORAGE_FILE, STORAGE_TMP, STORAGE_BACKUP }) do
+      local okRead, raw = pcall(resolved.read, name)
+      if okRead and type(raw) == "string" and raw ~= "" then
+        local okDecode, decoded = pcall(SaveSerializer.decode, raw)
+        if okDecode and type(decoded) == "table" then return decoded, name end
+      end
+    end
+    return nil
   end
 
   local function freshStorage()
@@ -568,6 +625,7 @@ return function(mod)
   end
 
   local storage           -- in-memory cache, lazy-loaded
+  local storageScoped = false   -- has `storage` come from a real playthrough?
   local dirty = false
 
   local function normalize(s)
@@ -578,9 +636,10 @@ return function(mod)
     -- requiring every reader to guard against a missing table.
     s.passwords = type(s.passwords) == "table" and s.passwords or {}
     -- connectionMode/spriteKey: GHOST LEVELING and GHOST SPRITE moved here
-    -- from mod.options (2026-08-14, the SILPH SCOPE NET hub menu rework) --
-    -- global settings, same scope mod.options always gave them (one shared
-    -- ghosts.lua across every save on the machine, not per-save).
+    -- from mod.options (2026-08-14, the SILPH SCOPE NET hub menu rework).
+    -- These used to be machine-global (one shared ghosts.lua); under
+    -- mod.storage they are per-playthrough, so each save now carries its own
+    -- ghost look and mode. No reader below cares which it is.
     s.connectionMode = (s.connectionMode == "scale" or s.connectionMode == "off")
       and s.connectionMode or "filter"
     s.spriteKey = type(s.spriteKey) == "string" and s.spriteKey or ""
@@ -589,16 +648,38 @@ return function(mod)
   end
 
   local function loadStorage()
-    if storage then return storage end
-    local out = readStorageFile(STORAGE_FILE)
-      or readStorageFile(STORAGE_TMP)
-      or readStorageFile(STORAGE_BACKUP)
-      or freshStorage()
-    storage = normalize(out)
+    if storage and storageScoped then return storage end
+    -- No playthrough resolved yet (entry chunk, title screen). Hand back a
+    -- throwaway so an early reader can't crash, but do NOT cache it as the
+    -- real thing -- the first call once a playthrough exists must still read
+    -- what is actually stored rather than inherit these defaults.
+    if not storageReady() then return normalize(freshStorage()) end
+
+    local out = storageRead(STORAGE_KEY)
+    if not out then
+      local imported, from = legacyImport()
+      if imported then
+        out = imported
+        dirty = true     -- carry it into mod.storage on the next flush
+        log("imported legacy storage from %s (%d ghost(s))",
+          tostring(from), type(imported.ghosts) == "table" and #imported.ghosts or 0)
+      end
+    end
+    storage = normalize(out or freshStorage())
+    storageScoped = true
     return storage
   end
 
   local function markDirty() dirty = true end
+
+  -- Declared here, assigned in the logger block below -- a Lua local must
+  -- exist before the code that NAMES it, not merely before that code runs.
+  local resetLogScope = function() end
+
+  local function invalidateStorageScope()
+    storage, storageScoped, dirty = nil, false, false
+    resetLogScope()
+  end
 
   -- GHOST LEVELING mode -- read fresh everywhere (not cached), same
   -- discipline mod.options reads always had, so a choice made in the hub
@@ -725,52 +806,76 @@ return function(mod)
     return (label:gsub("%s*%([MF]%)$", ""))
   end
 
-  local function flushStorage()
-    if not (dirty and storage) then return end
-    pcall(function() fs().createDirectory(STORAGE_DIR) end)
-    local ok, encoded = pcall(SaveSerializer.encode, storage)
-    if not ok then
-      mod.log:warn("[silphscope_network] could not encode storage: %s", tostring(encoded))
-      return
-    end
-    if fileExists(STORAGE_FILE) then
-      local prev = tryRead(STORAGE_FILE)
-      if prev then tryWrite(STORAGE_BACKUP, prev) end
-    end
-    if not tryWrite(STORAGE_TMP, encoded) then
-      mod.log:warn("[silphscope_network] could not stage %s", STORAGE_TMP); return
-    end
-    tryRemove(STORAGE_FILE)
-    if not tryWrite(STORAGE_FILE, encoded) then
-      mod.log:warn("[silphscope_network] could not write %s", STORAGE_FILE); return
-    end
-    tryRemove(STORAGE_TMP)
-    dirty = false
-    log("flushed %d ghost(s) to %s", #storage.ghosts, STORAGE_FILE)
+  -- ---------------------------------------------------------------------
+  -- File logger. mod.log only reaches the console, which is invisible in a
+  -- normal run, so this is still our window into the runtime checks -- but it
+  -- can no longer append to a file of its own. It buffers in memory and lands
+  -- in mod.storage as opaque bytes (a separate key from the data table:
+  -- Storage refuses a byte value and a data value on the same key). Read it
+  -- from <savedir>/mod_storage/<game>/<playthrough>/silphscope_network/.
+  -- ---------------------------------------------------------------------
+  local LOG_MAX_BYTES = 96 * 1024
+  local logBuf, logBytes, logDirty, logLoaded = {}, 0, false, false
+
+  -- Assigns the local declared up in the persistence block. Clears the buffer
+  -- outright rather than just re-reading: after a flush logBuf[1] holds the
+  -- PREVIOUS playthrough's carried tail, and writing that into the save the
+  -- player just switched to would copy one save's log into another's storage.
+  resetLogScope = function()
+    logBuf, logBytes, logDirty, logLoaded = {}, 0, false, false
   end
 
-  -- ---------------------------------------------------------------------
-  -- File logger -> silphscope_network/debug.log (next to ghosts.lua). mod.log
-  -- output isn't visible in a normal run, so this is our window into the
-  -- runtime checks. Written immediately (not on the save schedule) and
-  -- size-capped so it can't grow without bound.
-  -- ---------------------------------------------------------------------
-  local LOG_FILE = STORAGE_DIR .. "/debug.log"
+  local function flushLog()
+    if not (logDirty and storageReady()) then return end
+    if not logLoaded then
+      -- carry the previous session's tail across so the log stays continuous
+      local ok, prev = pcall(function()
+        return mod.storage:readBytes(liveGame, LOG_KEY)
+      end)
+      logLoaded = true
+      if ok and type(prev) == "string" and prev ~= "" then
+        table.insert(logBuf, 1, prev)
+        logBytes = logBytes + #prev
+      end
+    end
+    local body = table.concat(logBuf)
+    if #body > LOG_MAX_BYTES then body = body:sub(-LOG_MAX_BYTES) end
+    local ok = pcall(function()
+      return mod.storage:writeBytes(liveGame, LOG_KEY, body)
+    end)
+    if ok then
+      logBuf, logBytes, logDirty = { body }, #body, false
+    end
+  end
+
   fileLog = function(line)
-    local f = fs()
-    pcall(function() f.createDirectory(STORAGE_DIR) end)
     local stamp = (os.date and os.date("%Y-%m-%d %H:%M:%S")) or tostring((os.time and os.time()) or "")
     local entry = ("[%s] %s\n"):format(stamp, tostring(line))
-    if type(f.append) == "function" then
-      local ok = pcall(function() return f.append(LOG_FILE, entry) end)
-      if ok then return end
+    logBuf[#logBuf + 1] = entry
+    logBytes = logBytes + #entry
+    logDirty = true
+    -- Trim in memory so a long session can't grow without bound even if no
+    -- flush point is ever reached (no playthrough, e.g. stuck at the title).
+    while logBytes > LOG_MAX_BYTES * 2 and #logBuf > 1 do
+      logBytes = logBytes - #logBuf[1]
+      table.remove(logBuf, 1)
     end
-    local prev = tryRead(LOG_FILE) or ""
-    if #prev > 200000 then prev = prev:sub(-100000) end
-    tryWrite(LOG_FILE, prev .. entry)
   end
-  fileLog(("==== silphscope_network session start (portableFs=%s, world=%s, online=%s, countOption=%s) ===="):format(
-    tostring(SaveData.portableFs() ~= nil), tostring(mod.world ~= nil),
+
+  local function flushStorage()
+    flushLog()
+    if not (dirty and storage and storageScoped) then return end
+    local ok, err = storageWrite(STORAGE_KEY, storage)
+    if not ok then
+      mod.log:warn("[silphscope_network] could not write storage: %s", tostring(err))
+      return
+    end
+    dirty = false
+    log("flushed %d ghost(s) to mod.storage", #storage.ghosts)
+  end
+
+  fileLog(("==== silphscope_network session start (world=%s, online=%s, countOption=%s) ===="):format(
+    tostring(mod.world ~= nil),
     tostring(ONLINE_AVAILABLE), tostring(ONLINE_COUNT_SUPPORTED)))
 
   -- Tie our write to the game's own save, same as the Bank (a reset-without-
@@ -784,7 +889,8 @@ return function(mod)
   -- =====================================================================
   -- Live game handle + small helpers
   -- =====================================================================
-  local liveGame
+  -- (`liveGame` itself is declared above the persistence block, which needs it
+  -- to resolve mod.storage's scope.)
   mod.events:on("game.ready", function(ev)
     liveGame = (ev and ev.game) or liveGame
   end)
@@ -3516,6 +3622,11 @@ return function(mod)
     if not game then
       log("save.loaded but no liveGame yet"); return
     end
+    -- mod.storage is scoped per playthrough, so loading a DIFFERENT save mid
+    -- session points at different storage. Drop the cache (and the log's
+    -- carried-over tail) so the next read resolves against the save that was
+    -- just loaded rather than serving the previous one's data.
+    invalidateStorageScope()
     log("save.loaded: player=%s", shallowDump(game.save.player))
     log("save.loaded: meta=%s", shallowDump(game.save.meta))
     local okSlot, activeSlot = pcall(function() return SaveData.activeSlot(game.save.version) end)
@@ -3549,5 +3660,5 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.14.1, generation=%d)", GENERATION)
+  log("loaded (v0.15.0, generation=%d)", GENERATION)
 end
