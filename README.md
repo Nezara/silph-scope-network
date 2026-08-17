@@ -1,6 +1,11 @@
 # Silph Scope Network (test build 0.15.0)
 -- Created with AI/Vibe Coding--
 
+**Recommended gen1recomp version: 0.2.1.** That's what 0.15.0 is built and
+tested against. Older engines should still load it (`mod.storage`, which this
+build depends on, has been in gen1recomp since 0.1.76), but 0.2.1 is the one
+this release is confirmed against.
+
 *0.15.0: gen1recomp's mod sandbox. The engine no longer lets a mod touch
 `love.filesystem`, and the next release refuses to load one that tries, so all
 persistence moved to the supported `mod.storage` API. Existing ghosts,
