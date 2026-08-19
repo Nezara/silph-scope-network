@@ -1964,6 +1964,16 @@ return function(mod)
   -- reason is included, trimmed, so a tester can just read it out.
   local function notifyUploadProblem(game, headline, reason)
     local detail = tostring(reason or "")
+    -- The engine's own HostShell/Fetch error strings literally read
+    -- "download failed for <url>" (it calls every GET a "download",
+    -- including an upload's own GET request) -- passing that straight
+    -- through leaked the full server address (and part of the base64
+    -- payload) into a player-facing TextBox, truncated mid-URL. Collapse
+    -- anything mentioning a URL down to one clean phrase instead; a tester
+    -- has no use for the raw address anyway.
+    if detail:find("https?://") then
+      detail = "download failed from server"
+    end
     detail = detail:gsub("%s+", " "):sub(1, 60)
     local msg = headline
     if detail ~= "" then msg = msg .. "\f" .. detail end
@@ -3170,12 +3180,18 @@ return function(mod)
       and "Your old ghost was\nrecalled.\f%s now waits\nhere for other\nworlds to find."
       or "Your ghost was\nsent to the void!\f%s now waits\nhere for other\nworlds to find."
     msg = msg:format(rec.name)
-    -- Be explicit that a send with OFFLINE MODE on never leaves this
-    -- machine. Without this the confirmation is identical either way, so
-    -- testers reasonably assumed their ghost had gone out to other players
-    -- when it had only ever been written to the local shared file (the
-    -- single most likely reason a tester's upload "didn't work").
-    if not onlineModeOn() then
+    -- Be explicit that a send never left this machine, and WHY, rather than
+    -- showing the byte-identical confirmation either way (the single most
+    -- likely reason a tester's upload "didn't work" with no clue given).
+    -- These are two genuinely different situations that both make
+    -- onlineModeOn() false, and conflating them used to blame the player's
+    -- own toggle even when they'd never touched it: ONLINE_AVAILABLE being
+    -- false means Fetch/Json failed to load in this build (e.g. an old
+    -- release missing the "network" permission the engine now enforces) --
+    -- nothing the player did, and OFFLINE MODE isn't actually on.
+    if not ONLINE_AVAILABLE then
+      msg = msg .. "\fOnline features\naren't available\nin this build."
+    elseif not onlineModeOn() then
       msg = msg .. "\fOFFLINE MODE is on,\nso this ghost stays\non this machine."
     end
     -- The overleveled-team heads-up now lives at the FRONT of sendSelf's
