@@ -282,23 +282,52 @@ local DIALOGUE_MAX_LEN = 48
 -- query param, not a normal REST call. Fetch.get is async (returns a job id,
 -- poll Fetch.poll(id) for the result) and never blocks the game.
 --
--- PLAIN HTTP, deliberately (v0.8.2): every HTTPS request from this engine's
--- Fetch (which shells out to curl on desktop, confirmed from source) failed
--- live with "schannel: CRYPT_E_NO_REVOCATION_CHECK" -- a Windows certificate
--- revocation-check failure, confirmed to be a machine/network-level curl
--- problem (the exact same error independently hit this session's own tooling
--- against an unrelated site), not anything wrong with the server or this
--- code. Plain HTTP has no TLS handshake at all, so there's no revocation
--- check to fail -- confirmed the server answers cleanly over HTTP with no
--- redirect. There's no sensitive data in this payload (a ghost's map
--- position and party -- the whole point is sharing it with other players),
--- so the lost transport encryption is an acceptable tradeoff for a feature
--- that doesn't work at all otherwise on an affected machine. If this ever
--- needs to move back to HTTPS (e.g. a stricter host that forces it), the fix
--- is on the PLAYER's machine, not here: Control Panel -> Internet Options ->
--- Advanced -> Security -> uncheck "Check for server certificate revocation".
+-- THE SCHEME IS PER-PLATFORM, and it has to be: desktop and mobile have
+-- mutually exclusive transport requirements. Both confirmed from engine
+-- source plus live testing (2026-08-19); do NOT collapse this back to one
+-- hardcoded scheme, either choice alone breaks half the players.
+--
+-- DESKTOP -> plain HTTP (this is the original v0.8.2 decision, unchanged).
+-- The engine's Fetch shells out to curl there, and every HTTPS request from
+-- it failed live with "schannel: CRYPT_E_NO_REVOCATION_CHECK" -- a Windows
+-- certificate revocation-check failure at the machine level, not a server or
+-- code fault (the identical error independently hit unrelated tooling on the
+-- same machine, and still reproduces today). Plain HTTP has no TLS handshake
+-- at all, so there's no revocation check to fail -- and the server answers
+-- cleanly over HTTP with no forced redirect. A player who wants HTTPS on
+-- desktop fixes it on their own machine: Control Panel -> Internet Options
+-- -> Advanced -> Security -> uncheck "Check for server certificate
+-- revocation".
+--
+-- ANDROID / iOS / UWP -> HTTPS, mandatory. These platforms cannot spawn a
+-- process at all (src/core/Platform.lua's canSpawnProcess is true only for
+-- Windows/OS X/Linux), so curl is never available and the ONLY transport is
+-- the JNI bridge HostShell falls back to -- love.system.httpDownload, which
+-- the engine's own source (src/core/HostShell.lua, "HTTP transport" section)
+-- documents as HttpsURLConnection. That is HTTPS-only, and Android 9+ blocks
+-- cleartext HTTP by default besides, so a plain-http:// URL there dies before
+-- it ever leaves the device -- surfacing as the bridge's "download failed
+-- for <url>" while the server log shows no request at all (exactly what an
+-- Android tester reported).
+--
+-- There's no sensitive data in this payload either way (a ghost's map
+-- position and party -- sharing it is the entire point of the feature), so
+-- this is purely about what each transport will physically carry, not about
+-- protecting secrets.
 -- =========================================================================
-local ONLINE_SERVER_URL = "http://silph-scope-network.silphscopenetwork.workers.dev"
+local ONLINE_SERVER_HOST = "silph-scope-network.silphscopenetwork.workers.dev"
+local ONLINE_SERVER_URL = (function()
+  -- getOS is one of the few love.system keys the mod sandbox still forwards
+  -- (src/mods/LegacyCompat.lua's systemShim). pcall-guarded with a desktop
+  -- default anyway, so a headless/test host or a future sandbox that drops
+  -- it lands on exactly today's behaviour rather than erroring at load.
+  local osName
+  pcall(function() osName = love.system.getOS() end)
+  if osName == "Android" or osName == "iOS" or osName == "UWP" then
+    return "https://" .. ONLINE_SERVER_HOST
+  end
+  return "http://" .. ONLINE_SERVER_HOST
+end)()
 local ONLINE_UPLOAD_MAX_BYTES = 6000  -- stay under the server's own 8000-byte cap after overhead
 local ONLINE_DEFAULT_COUNT = 3        -- used if the numeric option type isn't supported (see below)
 
@@ -874,9 +903,19 @@ return function(mod)
     log("flushed %d ghost(s) to mod.storage", #storage.ghosts)
   end
 
-  fileLog(("==== silphscope_network session start (world=%s, online=%s, countOption=%s) ===="):format(
+  -- The OS and the server SCHEME are logged because they're the two things
+  -- that decide whether online mode can work at all on this host, and neither
+  -- was previously visible: an Android tester's upload failed with only the
+  -- engine's generic "download failed for <url>" to go on, and it took
+  -- reading the engine's transport matrix to work out that plain HTTP simply
+  -- cannot leave a mobile device (see ONLINE_SERVER_URL). With these two
+  -- fields the same report answers itself.
+  local osName
+  pcall(function() osName = love.system.getOS() end)
+  fileLog(("==== silphscope_network session start (world=%s, online=%s, countOption=%s, os=%s, server=%s) ===="):format(
     tostring(mod.world ~= nil),
-    tostring(ONLINE_AVAILABLE), tostring(ONLINE_COUNT_SUPPORTED)))
+    tostring(ONLINE_AVAILABLE), tostring(ONLINE_COUNT_SUPPORTED),
+    tostring(osName or "unknown"), tostring(ONLINE_SERVER_URL:match("^(%a+)://") or "?")))
 
   -- Tie our write to the game's own save, same as the Bank (a reset-without-
   -- saving then reverts the deposit too -- no free duplication).
