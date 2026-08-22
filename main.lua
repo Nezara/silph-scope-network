@@ -3715,5 +3715,37 @@ return function(mod)
   mod.exports.listGhosts = function() return deepcopy(loadStorage().ghosts) end
   mod.exports.ghostCount = function() return #loadStorage().ghosts end
 
-  log("loaded (v0.15.0, generation=%d)", GENERATION)
+  -- The per-save identity every server row is keyed on.
+  --
+  -- Exported for `silphscope_tournament` (v0.16.0), which MUST produce the
+  -- same origin string as this mod or its tournament entries cannot be
+  -- correlated with this save's ghost -- which is what the "earn a third run
+  -- from 5 overworld ghost wins" rule depends on.
+  --
+  -- Deliberately the ONE source of truth rather than a derivation the other
+  -- mod repeats: saveOriginId combines the save SLOT with trainer identity
+  -- precisely because trainer id+name alone is NOT unique per slot (slot1 and
+  -- slot2 in this install both hold id=45799/WILL), and that was learned the
+  -- hard way. A second copy of that reasoning in another mod would drift out
+  -- of sync silently, and the symptom -- entries quietly attributed to the
+  -- wrong save -- is exactly the kind that surfaces late.
+  --
+  -- `game` is optional; it falls back to the live game this mod already
+  -- tracks, so a caller without a game handle still gets the right answer.
+  mod.exports.originId = function(game) return saveOriginId(game or liveGame) end
+
+  -- The player's own chosen GHOST SPRITE key (empty string if never set,
+  -- meaning "RED, the default").
+  --
+  -- Exported for `silphscope_tournament` (v0.17.0): tournament registration
+  -- and casual-join entries carry a `sprite` field the server hands back to
+  -- every future opponent, and it should be the SAME look this save's own
+  -- ghost already uses rather than a second, independent choice -- "player
+  -- ghosts should use their respective sprites" only holds if there is one
+  -- source of truth for what that sprite is. No `game` argument (unlike
+  -- originId) because loadStorage() doesn't take one either -- it already
+  -- resolves against this mod's own tracked `liveGame`.
+  mod.exports.spriteKey = function() return loadStorage().spriteKey end
+
+  log("loaded (v0.17.0, generation=%d)", GENERATION)
 end
