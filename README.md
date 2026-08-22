@@ -58,6 +58,14 @@ ghosts are never affected):
   what it was actually sent with — that's a known, accepted tradeoff for an
   opt-in mode.
 
+- **NORMALIZE TO LEVEL** —
+  see every ghost regardless of area, but every ghost mon's level is set to
+  one fixed level YOU pick (1-100), instead of the receiving player's own
+  party average. Picking this row opens a quantity screen to choose the
+  level; picking it again later reopens the same screen pre-filled with your
+  current choice, so you can change it any time. Same move-set caveat as
+  SCALE TO PLAYER — species/moves are untouched, only the level changes.
+
 - **OFF** — no filtering, no scaling, ghosts exactly as sent. available if you want the world to be a risky place with battles of random levels. 
   an early area.
 

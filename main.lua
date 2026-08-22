@@ -649,6 +649,12 @@ return function(mod)
     return nil
   end
 
+  -- NORMALIZE TO LEVEL's default target, used both to seed a fresh save's
+  -- storage and as the QuantityBox's starting value the first time the
+  -- picker opens (see openConnectionModePicker) -- 50 sits mid-range across
+  -- a full Kanto playthrough (starters cap out around L45-55 by the E4).
+  local DEFAULT_NORMALIZE_LEVEL = 50
+
   local function freshStorage()
     return { version = STORAGE_VERSION, ghosts = {}, nextId = 1, passwords = {} }
   end
@@ -669,8 +675,14 @@ return function(mod)
     -- These used to be machine-global (one shared ghosts.lua); under
     -- mod.storage they are per-playthrough, so each save now carries its own
     -- ghost look and mode. No reader below cares which it is.
-    s.connectionMode = (s.connectionMode == "scale" or s.connectionMode == "off")
+    --
+    -- "normalize" (2026-08-22 addition): every ghost mon's level becomes a
+    -- PLAYER-CHOSEN fixed level instead of the viewer's own party average
+    -- ("scale") -- see normalizeLevel()/DEFAULT_NORMALIZE_LEVEL below.
+    s.connectionMode = (s.connectionMode == "scale" or s.connectionMode == "off"
+        or s.connectionMode == "normalize")
       and s.connectionMode or "filter"
+    s.normalizeLevel = math.max(1, math.min(100, math.floor(tonumber(s.normalizeLevel) or DEFAULT_NORMALIZE_LEVEL)))
     s.spriteKey = type(s.spriteKey) == "string" and s.spriteKey or ""
     s.ghostType = (s.ghostType == "friendly") and "friendly" or "trainer"
     return s
@@ -717,12 +729,26 @@ return function(mod)
   -- filterCapForMap/levelCapForMap call this.
   local function ghostLevelMode()
     local v = loadStorage().connectionMode
-    if v == "scale" or v == "off" then return v end
+    if v == "scale" or v == "off" or v == "normalize" then return v end
     return "filter"
   end
   local function setConnectionMode(mode)
     local s = loadStorage()
     s.connectionMode = mode
+    markDirty()
+  end
+
+  -- NORMALIZE TO LEVEL's target -- same read-fresh discipline as
+  -- ghostLevelMode/selectedSprite. Clamped again on read (not just at
+  -- normalize()-time/setNormalizeLevel-time) -- belt and suspenders, but
+  -- costs nothing and keeps the invariant airtight everywhere it's read.
+  local function normalizeLevel()
+    local v = math.floor(tonumber(loadStorage().normalizeLevel) or DEFAULT_NORMALIZE_LEVEL)
+    return math.max(1, math.min(100, v))
+  end
+  local function setNormalizeLevel(level)
+    local s = loadStorage()
+    s.normalizeLevel = math.max(1, math.min(100, math.floor(tonumber(level) or DEFAULT_NORMALIZE_LEVEL)))
     markDirty()
   end
 
@@ -816,7 +842,13 @@ return function(mod)
 
   local CONNECTION_MODE_LABELS = { filter = "ZONE", scale = "SCALE", off = "OFF" }
   local function connectionModeLabel()
-    return CONNECTION_MODE_LABELS[ghostLevelMode()] or "ZONE"
+    local mode = ghostLevelMode()
+    -- "normalize" shows the CHOSEN level right in the hub row (e.g. "LV50")
+    -- instead of a fixed word, same spirit as SCALE showing what it does --
+    -- the level is the whole point of the setting, so surface it directly
+    -- rather than making the player open the picker just to check it.
+    if mode == "normalize" then return "LV" .. tostring(normalizeLevel()) end
+    return CONNECTION_MODE_LABELS[mode] or "ZONE"
   end
   local function spriteLabel()
     local key = loadStorage().spriteKey
@@ -1183,14 +1215,18 @@ return function(mod)
     if not (game and game.data and game.data.trainers) then return nil end
     local class = ghostTrainerClass(rec)
     injectedRecs[class] = rec
-    -- SCALE TO ME: every mon's level becomes the VIEWER's own party average
-    -- instead of whatever the sender actually had. Species/moves are
-    -- untouched -- a scaled-up mon can still only know what it was sent
-    -- with, a known and accepted tradeoff for an opt-in mode (see
-    -- ghostLevelMode's own comment). nil (no scaling) if the mode isn't on
-    -- or the viewer's own party is unreadable, in which case this behaves
-    -- exactly as it always has.
-    local scaleTo = (ghostLevelMode() == "scale") and viewerAverageLevel(game) or nil
+    -- SCALE TO ME / NORMALIZE TO LEVEL: every mon's level becomes either the
+    -- VIEWER's own party average ("scale") or a fixed, player-chosen level
+    -- ("normalize") instead of whatever the sender actually had. Species/
+    -- moves are untouched -- a scaled mon can still only know what it was
+    -- sent with, a known and accepted tradeoff for either opt-in mode (see
+    -- ghostLevelMode's own comment). nil (no scaling) if neither mode is on
+    -- or (for "scale" only) the viewer's own party is unreadable, in which
+    -- case this behaves exactly as it always has.
+    local mode = ghostLevelMode()
+    local scaleTo = (mode == "scale" and viewerAverageLevel(game))
+      or (mode == "normalize" and normalizeLevel())
+      or nil
     local slots = {}
     for _, mon in ipairs(rec.party or {}) do
       if mon and mon.species and mon.level then
@@ -1540,14 +1576,18 @@ return function(mod)
     if not (entry and type(entry.trainers) == "table") then return nil end
     local roster = type(rec.party) == "table" and #rec.party > 0 and rec.party or nil
     if not roster then return nil end
-    -- SCALE TO ME (same rule as Gen 1's injectTrainer): every mon's level
-    -- becomes the viewer's own party average. Species/moves/dvs untouched.
-    -- rec.party is the SAME table object cached in loadStorage().ghosts (or
-    -- the online download record), so this must build a fresh copy rather
-    -- than mutate it in place -- otherwise a scaled level would get written
-    -- back into the shared local storage / corrupt what a later refresh
-    -- reads for a DIFFERENT viewer with scaling off.
-    local scaleTo = (ghostLevelMode() == "scale") and viewerAverageLevel(game) or nil
+    -- SCALE TO ME / NORMALIZE TO LEVEL (same rule as Gen 1's injectTrainer):
+    -- every mon's level becomes either the viewer's own party average or a
+    -- fixed, player-chosen level. Species/moves/dvs untouched. rec.party is
+    -- the SAME table object cached in loadStorage().ghosts (or the online
+    -- download record), so this must build a fresh copy rather than mutate
+    -- it in place -- otherwise a scaled level would get written back into
+    -- the shared local storage / corrupt what a later refresh reads for a
+    -- DIFFERENT viewer with scaling off.
+    local gen2Mode = ghostLevelMode()
+    local scaleTo = (gen2Mode == "scale" and viewerAverageLevel(game))
+      or (gen2Mode == "normalize" and normalizeLevel())
+      or nil
     if scaleTo then
       local scaled = {}
       for i, mon in ipairs(roster) do
@@ -3553,18 +3593,47 @@ return function(mod)
     }
   end
 
+  -- NORMALIZE TO LEVEL: picking it doesn't set the mode directly (unlike the
+  -- other three rows) -- it opens a QuantityBox first so the player chooses
+  -- WHICH level, and only commits connectionMode = "normalize" once a value
+  -- comes back. Reused for both the first pick and later re-edits (choosing
+  -- this row again while already in "normalize" mode just reopens the box
+  -- pre-filled with the current level, same as re-picking any other setting
+  -- here shows its current value). Cancelling (qty nil, same B-out
+  -- convention as askLeaveItem's QuantityBox above) leaves the mode
+  -- untouched -- picking this row is only a commitment once a number is
+  -- actually chosen.
+  local function openNormalizeLevelPicker(game, hubMenu)
+    game.stack:push(QuantityBox.new(game, {
+      max = 100, start = normalizeLevel(),
+      onDone = function(qty)
+        if qty then
+          setNormalizeLevel(qty)
+          setConnectionMode("normalize")
+          log("connection mode set to 'normalize' (level %d)", qty)
+        end
+        hubMenu.items = hubItems()
+      end,
+    }))
+  end
+
   local function openConnectionModePicker(game, hubMenu)
     local items = {
       { label = "LEVEL/ZONE", value = "filter" },
       { label = "SCALE TO PLAYER", value = "scale" },
+      { label = "NORMALIZE TO LEVEL", value = "normalize" },
       { label = "OFF", value = "off" },
     }
     local picker
     picker = ListMenu.new(game, "CONNECTION MODE", items, {
       onChoose = function(item, m)
+        m:close()
+        if item.value == "normalize" then
+          openNormalizeLevelPicker(game, hubMenu)
+          return
+        end
         setConnectionMode(item.value)
         log("connection mode set to '%s'", tostring(item.value))
-        m:close()
         hubMenu.items = hubItems()
       end,
     })
